@@ -53,3 +53,10 @@
 - Capacidad: cerrar los tres bloqueantes P0 de pérdida de datos, XSS/sesión y contraseña predeterminada.
 - Gate: Gate 4 para el incremento local; Gate 5 de producción permanece bloqueado.
 - Evidencia: pruebas automatizadas, validación Humanio, comprobación sintáctica y revisión de diferencias.
+
+## Incremento CHG-025 — Propuestas internas y reservas por tamaño
+
+- `OBJ-022`: coordinar propuestas de Contado, Crédito y Apartado sin sobrecomprometer inventario ni exponer al Asesor los tamaños de semilla.
+- Fuente: requerimiento de cliente y aclaraciones confirmadas el 2026-10-31.
+- Resultado: Ventas autoriza Crédito/Apartado; Contado espera venta y cobro; Almacén distribuye el mismo producto entre tamaños y reserva disponibilidad hasta la entrega.
+- Exclusiones: no sustituir un producto por otro, no desplegar, no migrar datos productivos y no recalcular registros históricos.

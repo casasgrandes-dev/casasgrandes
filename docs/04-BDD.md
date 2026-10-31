@@ -708,18 +708,21 @@ And la interfaz despliega el selector con la lista completa de asesores
 ## Escenarios BDD del Incremento CHG-022
 
 ### BDD-SC-080 — Ocultamiento del elemento de menú Almacén para el rol Asesor
+> Acotado por ADR-016/CHG-025: se restaura la consulta de existencias generales sin lotes ni tamaños; las operaciones continúan ocultas.
 - **Dado** un usuario autenticado con rol "Asesor"
 - **Cuando** carga la aplicación web y se evalúan los permisos de interfaz
 - **Entonces** el ítem de navegación "Almacén" (`li[data-target="almacen-view"]`) permanece oculto (`display: none`)
 - **Y** no aparece ninguna opción de inventario en el menú lateral del vendedor.
 
 ### BDD-SC-081 — Redirección y bloqueo en conmutación directa a Almacén para rol Asesor
+> Acotado por ADR-016/CHG-025: el Asesor puede abrir exclusivamente el panel de existencias generales.
 - **Dado** un usuario autenticado con rol "Asesor"
 - **Cuando** se ejecuta la función `switchView('almacen-view')`
 - **Entonces** el sistema detecta que el usuario carece de perfil de almacén
 - **Y** cancela la carga de existencias redirigiéndolo de forma segura al Tablero General (`dashboard-view`).
 
 ### BDD-SC-082 — Denegación perimetral HTTP 403 a rutas /api/almacen para rol Asesor
+> Acotado por ADR-016/CHG-025: `GET /api/almacen/existencias` es la única excepción y omite tamaños/lotes.
 - **Dado** un usuario autenticado con rol "Asesor"
 - **Cuando** intenta realizar cualquier petición HTTP GET o POST a los endpoints de `/api/almacen`
 - **Entonces** el middleware `requireRoles(INVENTORY_ROLES)` rechaza la petición con estado HTTP 403 Forbidden.
@@ -820,3 +823,69 @@ And la interfaz despliega el selector con la lista completa de asesores
 - **Cuando** el servidor ejecuta `initSchema()` o recibe un registro de Entrada o Salida en `POST /api/almacen/movimientos`
 - **Entonces** `initSchema()` crea previamente cualquier tabla base faltante (como `metas_ventas`) y aplica sin bloqueos `ALTER TABLE almacen_movimientos ADD COLUMN IF NOT EXISTS ciclo_agricola TEXT`
 - **Y** si durante `POST /api/almacen/movimientos` ocurre un error de columna inexistente (`42703` / `column "ciclo_agricola" of relation "almacen_movimientos" does not exist`), el backend asegura la columna y reintenta la transacción automáticamente sin devolver error al usuario.
+
+## Escenarios BDD del Incremento CHG-025
+
+### BDD-SC-097 — Cotizador interno sin resumen ni tamaños
+- **Dado** un Asesor autenticado
+- **Cuando** abre el Cotizador y alterna entre Contado, Crédito y Apartado
+- **Entonces** no ve hoja imprimible, resumen, compartir, imprimir ni selección de tamaño
+- **Y** conserva la selección de producto y cantidad
+- **Y** puede consultar existencias generales, sin lotes ni tamaños.
+- **Y** el catálogo de productos y los detalles de propuestas tampoco exponen tamaños a Asesor, Administrador o Coordinador.
+- **Y** las lecturas de Kardex/lotes omiten tamaños para cualquier rol distinto de Almacén
+- **Y** solo Almacén puede filtrar por tamaño o registrar movimientos manuales de semilla con tamaño.
+
+### BDD-SC-098 — Precio propuesto opcional por partida de Contado
+- **Dado** una propuesta Contado con dos productos
+- **Cuando** captura precio propuesto solo en una partida y explica la solicitud en Notas
+- **Entonces** se persiste el precio propuesto en esa partida
+- **Y** el total autorizado no cambia por ese valor informativo.
+
+### BDD-SC-099 — Contado requiere venta y cobro
+- **Dado** una propuesta Contado
+- **Cuando** Administrador o Coordinador confirma únicamente venta o únicamente cobro
+- **Entonces** no se crea solicitud de Almacén
+- **Y** al confirmar el segundo estado se crea exactamente una solicitud aunque se repita la petición.
+
+### BDD-SC-100 — Crédito usa cosecha fija sin beneficios
+- **Dado** un producto con precio lleno de `$7,000.00`
+- **Cuando** el Asesor crea una solicitud Crédito
+- **Entonces** el servidor calcula `$7,560.00` por unidad
+- **Y** ignora o rechaza descuentos, Nucle y cupones manipulados.
+
+### BDD-SC-101 — PDF institucional de requisitos
+- **Dado** un Administrador que publica un PDF válido de hasta 8 MiB
+- **Cuando** un Asesor consulta `Solicitud de crédito y requisitos`
+- **Entonces** obtiene el documento activo para visualizar o imprimir
+- **Y** un Asesor no puede reemplazarlo.
+
+### BDD-SC-102 — Autorización de Crédito/Apartado y filtro
+- **Dado** solicitudes pendientes de las tres condiciones
+- **Cuando** Administrador o Coordinador filtra Crédito o Apartado y decide una solicitud
+- **Entonces** autorizar crea una solicitud de Almacén y rechazar no la crea
+- **Y** un Asesor recibe 403 si intenta decidir.
+
+### BDD-SC-103 — Apartado sin importes
+- **Dado** una solicitud Apartado con productos y cantidades
+- **Cuando** se guarda
+- **Entonces** total, precios y anticipo son cero
+- **Y** no se muestran Nucle, cupones, descuentos ni tabulador.
+
+### BDD-SC-104 — Reserva dividida entre tamaños
+- **Dado** una solicitud de 100 bolsas del mismo híbrido
+- **Cuando** Almacén asigna 60 BT1 y 40 BT2 con disponibilidad suficiente
+- **Entonces** se crean dos reservas activas cuya suma es 100
+- **Y** la existencia física no cambia y la disponibilidad disminuye en 100.
+
+### BDD-SC-105 — Insuficiencia, suma inválida y concurrencia
+- **Dado** dos solicitudes concurrentes sobre la misma disponibilidad
+- **Cuando** una asignación excede un tamaño o la suma no coincide con lo solicitado
+- **Entonces** se rechaza completa sin reservas parciales
+- **Y** dos confirmaciones concurrentes no sobreasignan ni duplican reservas.
+
+### BDD-SC-106 — Entrega, cancelación y reversión
+- **Dado** una solicitud completamente reservada
+- **Cuando** se entrega, cancela o revierte
+- **Entonces** entrega consume reserva y descuenta físico, cancelación previa libera reserva y reversión repone físico
+- **Y** repetir cualquier transición no duplica el efecto.

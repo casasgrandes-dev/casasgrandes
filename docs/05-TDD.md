@@ -549,6 +549,8 @@
 
 ## TDD-TC-098 — Exclusión de Asesor en INVENTORY_ROLES y denegación perimetral HTTP 403
 
+> Acotado por TDD-TC-120/CHG-025: `GET /api/almacen/existencias` queda permitido en modo totalizado; las demás rutas permanecen denegadas.
+
 - Cubre: BDD-SC-082, PRD-FR-049, SDD-CMP-045
 - Aserciones:
   1. `INVENTORY_ROLES` excluye terminantemente a `ROLES.ADVISOR` (`Asesor`).
@@ -557,6 +559,8 @@
 - Estado: passed-local
 
 ## TDD-TC-099 — Ocultamiento de Almacén en interfaz y guardia en enrutador de cliente
+
+> Acotado por TDD-TC-120/CHG-025: el Asesor ve existencias generales, pero no pestañas operativas ni tamaños.
 
 - Cubre: BDD-SC-080, BDD-SC-081, BDD-SC-083, PRD-FR-049, SDD-CMP-045
 - Aserciones:
@@ -596,13 +600,15 @@
 
 ## TDD-TC-103 — Recálculo reactivo inmediato y sincronización de totales en Cotizador para cualquier rol y dispositivo
 
+> Acotado por ADR-016/CHG-025: se conserva el cálculo interno y el subtotal por partida, pero se eliminan el resumen, total visible, puntos, cupón y hoja virtual del Cotizador.
+
 - Cubre: BDD-SC-089, PRD-FR-037, SDD-CMP-034
 - Aserciones:
   1. `recalcTotalsWithDiscounts` prioriza el precio unitario del campo numérico manual `item-final-price-input` si contiene un valor válido, o en su defecto el precio derivado del slider (`basePrice - additional - nucle`).
-  2. Modificar la cantidad (`item-qty-input` o botones `+`/`-`) invoca `recalcTotalsWithDiscounts` inmediatamente, actualizando los subtotales por partida y el gran total sin esperar la respuesta asíncrona del backend.
-  3. Modificar el precio final manual (`item-final-price-input`) actualiza en vivo el subtotal de la partida, el total de la cotización y los montos de puntos y cupón.
-  4. `.mobile-quote-summary` y `.mobile-item-subtotal` permanecen visibles en el formulario en cualquier tamaño de pantalla y para todos los roles de usuario (incluyendo Administrador).
-  5. `updateVirtualSheet` asigna directamente los totales y subtotales autorizados del servidor (`calc.total_mxn`, `item.subtotal`, `item.precio_final`), garantizando consistencia absoluta.
+  2. Modificar la cantidad (`item-qty-input` o botones `+`/`-`) invoca `recalcTotalsWithDiscounts` inmediatamente y actualiza el subtotal interno de la partida sin esperar la respuesta asíncrona del backend.
+  3. Modificar el precio final manual (`item-final-price-input`) actualiza el subtotal interno; el servidor conserva la autoridad del importe persistido.
+  4. `.mobile-item-subtotal` permanece visible en el formulario; la tarjeta `.mobile-quote-summary` queda suprimida por ADR-016/CHG-025 para todos los tamaños y roles.
+  5. `updateVirtualSheet` y los nodos `preview-*` no existen en el contrato CHG-025.
 - Estado: passed-local
 
 ## TDD-TC-104 — Lista blanca de manejadores en SecurityUtils permite eliminar salidas de almacén y capturar precios
@@ -668,3 +674,57 @@
   2. Se expone una función auxiliar de aseguramiento de columnas de almacén (`ensureWarehouseMovementsSchema`) y autorrecuperación en `POST /api/almacen/movimientos` que ante un error `column "ciclo_agricola" of relation "almacen_movimientos" does not exist` ejecuta `ALTER TABLE almacen_movimientos ADD COLUMN IF NOT EXISTS ciclo_agricola TEXT` y reintenta la operación exitosamente.
 - Estado: passed-local
 
+## Casos TDD del Incremento CHG-025
+
+### TDD-TC-111 — Contratos puros por condición
+- Cubre: BDD-SC-097, BDD-SC-100, BDD-SC-103; PRD-FR-054, PRD-FR-056, PRD-FR-057.
+- Verifica normalización, campos permitidos, `precio lleno * 1.08`, total cero de Apartado y prohibición de beneficios.
+- Estado: passed-local
+
+### TDD-TC-112 — Precio propuesto informativo por partida
+- Cubre: BDD-SC-098; PRD-FR-055.
+- Verifica opcionalidad, validación no negativa, persistencia y ausencia de efecto monetario.
+- Estado: passed-local
+
+### TDD-TC-113 — Elegibilidad Contado por venta y cobro
+- Cubre: BDD-SC-099; PRD-FR-055.
+- Verifica orden independiente, segunda confirmación e idempotencia.
+- Estado: passed-local
+
+### TDD-TC-114 — Autorización por rol y condición
+- Cubre: BDD-SC-102; PRD-FR-058, SDD-SEC-013.
+- Verifica Administrador/Coordinador, 403 para Asesor/Almacén y rechazo sin solicitud.
+- Estado: passed-local
+
+### TDD-TC-115 — Documento institucional PDF
+- Cubre: BDD-SC-101; PRD-FR-056, PRD-NFR-012.
+- Verifica MIME, firma `%PDF`, límite, reemplazo administrativo y lectura comercial.
+- Estado: passed-local
+
+### TDD-TC-116 — Validación de asignación mult tamaño
+- Cubre: BDD-SC-104, BDD-SC-105; PRD-FR-059.
+- Verifica suma exacta, mismo producto, cantidades positivas y tamaños no repetidos.
+- Estado: passed-local
+
+### TDD-TC-117 — Disponibilidad física menos reservas
+- Cubre: BDD-SC-104, BDD-SC-105; PRD-FR-059.
+- Verifica cálculo por producto/tamaño y fallo completo ante insuficiencia.
+- Estado: passed-local
+
+### TDD-TC-118 — Transacción, concurrencia e idempotencia de reservas
+- Cubre: BDD-SC-105; PRD-FR-059, PRD-NFR-012.
+- Requiere PostgreSQL aislado para dos asignaciones concurrentes y replay.
+- Automatización: `test/chg025_postgres_reservations.test.js`, ejecutable con `CHG025_TEST_POSTGRES_URL`; crea y elimina un esquema efímero, usa la ruta HTTP real y verifica `[201, 409]`, una sola reserva activa y replay `200` sin duplicación.
+- CI: `.github/workflows/chg025-postgres.yml` provisiona PostgreSQL 16 para ejecución manual o en pull request.
+- Estado: implemented-pending-postgresql-execution
+
+### TDD-TC-119 — Entrega, liberación y reversión
+- Cubre: BDD-SC-106; PRD-FR-059.
+- Verifica transiciones y que cada efecto físico ocurra exactamente una vez.
+- Estado: passed-local
+
+### TDD-TC-120 — Contrato visual y regresión del Cotizador
+- Cubre: BDD-SC-097..103; PRD-FR-054..058.
+- Verifica DOM condicionado, etiquetas, filtros, ausencia de tamaños/resumen y acciones por rol.
+- Verifica además que Administración no reciba ni edite calibres, que el backend redacte tamaños en catálogo, propuestas y Kardex para cualquier rol distinto de Almacén, y que solo Almacén pueda filtrar por tamaño o registrar movimientos manuales de semilla con tamaño.
+- Estado: passed-local

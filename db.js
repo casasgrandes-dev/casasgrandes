@@ -121,6 +121,15 @@ async function initSchema() {
     await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0');
     await pool.query('ALTER TABLE cotizaciones ALTER COLUMN nucle_porcentaje TYPE NUMERIC(5,2) USING ROUND(nucle_porcentaje::numeric, 2)');
     await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS descuento_nucle_mxn NUMERIC(14,2) NOT NULL DEFAULT 0');
+    await pool.query("ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'");
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada INTEGER NOT NULL DEFAULT 0');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado INTEGER NOT NULL DEFAULT 0');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada_en TIMESTAMP');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado_en TIMESTAMP');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_en TIMESTAMP');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_por_id INTEGER REFERENCES asesores(id)');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT');
+    await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT');
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_catalogo_unitario NUMERIC(14,2)');
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_mensual_unitario NUMERIC(14,2)');
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_mensual_unitario NUMERIC(14,2)');
@@ -128,6 +137,7 @@ async function initSchema() {
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_asesor_unitario NUMERIC(14,2)');
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_nucle_unitario NUMERIC(14,2) NOT NULL DEFAULT 0');
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT');
+    await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)');
     await pool.query('ALTER TABLE cuentas_clave ADD COLUMN IF NOT EXISTS descripcion TEXT');
     for (const tierName of ['Adquirir', 'Desarrollar', 'Retener', 'Retener GOLD']) {
       await pool.query(
@@ -159,6 +169,39 @@ async function initSchema() {
       )
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizacion_adjuntos_cotizacion ON cotizacion_adjuntos (cotizacion_id)');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cotizacion_reservas (
+        id SERIAL PRIMARY KEY,
+        cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+        cotizacion_detalle_id INTEGER NOT NULL REFERENCES cotizacion_detalles(id) ON DELETE CASCADE,
+        producto_id INTEGER NOT NULL REFERENCES productos(id),
+        tamano TEXT NOT NULL,
+        cantidad NUMERIC(14,3) NOT NULL CHECK (cantidad > 0),
+        estado TEXT NOT NULL DEFAULT 'ACTIVA' CHECK (estado IN ('ACTIVA', 'CONSUMIDA', 'LIBERADA')),
+        reservado_por_id INTEGER NOT NULL REFERENCES asesores(id),
+        reservado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_cotizacion_reserva_activa_detalle_tamano
+      ON cotizacion_reservas (cotizacion_detalle_id, UPPER(tamano))
+      WHERE estado = 'ACTIVA'
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizacion_reservas_disponibilidad ON cotizacion_reservas (producto_id, UPPER(tamano), estado)');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS documentos_credito (
+        id SERIAL PRIMARY KEY,
+        nombre_archivo VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        contenido BYTEA NOT NULL,
+        tamano_bytes INTEGER NOT NULL,
+        activo INTEGER NOT NULL DEFAULT 1,
+        creado_por_id INTEGER NOT NULL REFERENCES asesores(id),
+        creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_documentos_credito_activo ON documentos_credito (activo) WHERE activo = 1');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_metas_asesor_ciclo_activo ON metas_ventas (asesor_id, ciclo_agricola) WHERE activo = 1');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS crm_pujas (

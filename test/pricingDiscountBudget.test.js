@@ -155,7 +155,8 @@ test('TDD-TC-078: Programación y Cotizador muestran el nuevo contrato comercial
   assert.match(index, />Descuento del mes \(\$\)</);
   assert.match(index, />Asesor \(\$\)</);
   assert.doesNotMatch(index, />Promoción \(%\)</);
-  assert.match(frontend, /<label>Precio base<\/label>/);
+  assert.match(frontend, /class="item-price-label">Precio del mes<\/label>/);
+  assert.match(frontend, /priceLabel\.textContent = isCredit \? 'Precio a cosecha' : 'Precio del mes'/);
   assert.match(frontend, /calcItem\.precio_catalogo/);
   assert.match(frontend, /data-field="asesor_dinero"/);
 });
@@ -365,4 +366,3 @@ test('TDD-TC-103: Cotizador recalcula inmediatamente subtotales y total al modif
   assert.match(appJs, /changeQuoteQuantity/);
   assert.match(appJs, /setQuoteQuantity/);
 });
-

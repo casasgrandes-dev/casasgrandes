@@ -22,6 +22,7 @@
 | CHG-018 | 2026-09-18 | Recálculo en vivo al fijar precio final manual (blur/Enter) y sincronización de payload para conservar precio al modificar bolsas | PRD-FR-037 | TDD-TC-087; EVD-017 | implemented-local |
 | CHG-019 | 2026-09-18 | Recálculo reactivo inmediato de total y subtotales en Cotizador al modificar precio o cantidad, y visibilidad universal del resumen de cotización | PRD-FR-037 | TDD-TC-103; EVD-018 | implemented-local |
 | CHG-020 | 2026-09-21 | Whitelist de eliminación de almacén y handlers de precio final en security.js, reactividad integral precio/cantidad en cotizador y estandarización de 10 calibres de híbridos | BDD-SC-090..092, PRD-FR-037, SDD-SEC-012 | TDD-TC-104..106; EVD-019 | implemented-local |
+| CHG-025 | 2026-10-31 | Cotizador interno por condición, precio de cosecha fijo, autorización Ventas, reserva mult tamaño y documento institucional de Crédito | PROJECT-PR-019..020, ADR-016, PRD-FR-054..059 | TDD-TC-111..120; EVD-023 | implemented-tested-local |
 
 ## Reglas
 

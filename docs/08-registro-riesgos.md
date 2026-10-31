@@ -22,6 +22,8 @@
 | RSK-010 | Fallos de dependencia invisibles o apagado abrupto deja trabajo incompleto | media | alto | CHG-008 añade sondas, correlación y cierre ordenado; falta validar orquestador real | responsable técnico | partially-mitigated |
 | RSK-011 | Precio mensual consume presupuesto pero el asesor recibe nuevamente el tope completo | alta | alto | CHG-009 centraliza saldo, rechaza configuración/payload inválidos y prueba todos los canales | responsable técnico | mitigated-local |
 | RSK-012 | Flotantes o motores divergentes producen diferencias de centavos | media | alto | centavos en runtime, oráculo Python Decimal y fixtures compartidos; falta PostgreSQL real | responsable técnico | partially-mitigated |
+| RSK-013 | Reservas concurrentes sobreasignan un tamaño o una repetición duplica salida/reposición | media | crítico | ledger separado, locks estables, idempotencia, suma exacta y pruebas de concurrencia/reversión CHG-025 | responsable técnico | in-progress |
+| RSK-014 | Documento de crédito o tamaños se exponen a roles no autorizados | media | alto | RBAC explícito, PDF autenticado, redacción de catálogo/detalles y pruebas HTTP/visuales por rol | responsable técnico | mitigated-local |
 
 ## Riesgo residual
 
@@ -34,3 +36,9 @@
 - Gate 4 local: aprobado.
 - Gate 5 producción: `NOT READY`.
 - Motivos: sin PostgreSQL aislado, prueba visual, auditoría durable, drenado del orquestador, rollback productivo ni resolución completa de RSK-003, RSK-006, RSK-009 y RSK-010.
+
+## Readiness CHG-025
+
+- Gate 4 local: `CONDITIONAL`; 153 pruebas aprobadas, una omisión explícita de TDD-TC-118 y QA visual escritorio/móvil aprobada.
+- Gate 5 producción: `NOT READY`.
+- Motivos: TDD-TC-118 y la migración aún no se ejecutan contra PostgreSQL aislado; tampoco existe ensayo de rollback ni aprobación operativa.

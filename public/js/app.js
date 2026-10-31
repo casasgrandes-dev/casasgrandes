@@ -35,11 +35,11 @@ window.fetch = async function(...args) {
 let activeClientId = null;
 let quoteItemsCount = 0;
 let allQuotes = [];
+let warehouseRequests = [];
 let allProspects = [];
 let activeProspectId = null;
 let activePlanningQuoteContext = null;
 let preserveProspectQuoteContext = false;
-let selectedCreditAttachmentFile = null;
 let allClients = [];
 let selectedKanbanQuoteIds = new Set();
 let lastRenderedKanbanQuotes = [];
@@ -249,8 +249,8 @@ async function showAppView() {
     navSegLabel.textContent = user.nivel_rol === 'Asesor' ? 'Mi Seguimiento' : 'Seguimiento';
   }
 
-  // Handle Inventory / Warehouse Access (Excludes Asesor)
-  const canAccessInventory = ['Administrador', 'Almacen', 'Cobranza', 'Coordinador', 'Director'].includes(user.nivel_rol);
+  // Asesor may read product totals, while sizes and warehouse operations remain restricted.
+  const canAccessInventory = ['Administrador', 'Almacen', 'Cobranza', 'Coordinador', 'Director', 'Asesor'].includes(user.nivel_rol);
   document.querySelectorAll('.inventory-access-only').forEach(el => {
     if (el.classList.contains('view-section')) {
       el.style.display = canAccessInventory ? '' : 'none';
@@ -265,6 +265,20 @@ async function showAppView() {
   if (tabProd) {
     tabProd.style.display = canProduce ? 'block' : 'none';
   }
+  const tabRequests = document.getElementById('tab-solicitudes');
+  if (tabRequests) {
+    tabRequests.style.display = user.nivel_rol === 'Almacen' ? 'block' : 'none';
+  }
+  const seedMovementFilter = document.getElementById('cat-btn-semilla');
+  if (seedMovementFilter) {
+    seedMovementFilter.style.display = user.nivel_rol === 'Almacen' ? '' : 'none';
+  }
+  const advisorReadOnlyInventory = user.nivel_rol === 'Asesor';
+  ['tab-movimientos', 'btn-top-registrar-entrada', 'btn-top-registrar-salida', 'btn-card-registrar-entrada', 'btn-card-registrar-salida']
+    .forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.style.display = advisorReadOnlyInventory ? 'none' : '';
+    });
 
   // Handle Observador Interface Restrictions
   const isObservador = user.nivel_rol === 'Observador';
@@ -499,10 +513,10 @@ function switchView(viewId, title) {
     loadCatalogData();
   } else if (viewId === 'almacen-view') {
     if (user.nivel_rol === 'Asesor') {
-      switchView('dashboard-view', 'Tablero General');
-      return;
+      toggleAlmacenTab('existencias');
+    } else {
+      loadAlmacenData();
     }
-    loadAlmacenData();
   } else if (viewId === 'admin-view') {
     loadAdminData();
   } else if (viewId === 'planeacion-view') {
@@ -959,6 +973,14 @@ async function loadDashboardData() {
 // KANBAN CRM LOGIC
 // -------------------------------------------------------------
 
+function canManageSalesFlow() {
+  return ['Administrador', 'Coordinador'].includes(user?.nivel_rol);
+}
+
+function normalizedQuoteCondition(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().split(' ')[0];
+}
+
 // Drag and drop helper functions for HTML5 API
 window.allowDrop = function(ev) {
   ev.preventDefault();
@@ -982,8 +1004,8 @@ window.drop = async function(ev, targetStatus) {
   ev.preventDefault();
   const quoteId = ev.dataTransfer.getData("text/plain");
   if (!quoteId) return;
-  if (user?.nivel_rol !== 'Administrador') {
-    alert('Solo un administrador puede mover cotizaciones en el canal de ventas.');
+  if (!canManageSalesFlow()) {
+    alert('Solo Administrador o Coordinador pueden mover solicitudes en el canal de ventas.');
     return;
   }
   
@@ -1011,19 +1033,31 @@ window.moveQuoteStatus = async function(quoteId, currentStatus, direction, event
     event.stopPropagation();
     event.preventDefault();
   }
-  if (user?.nivel_rol !== 'Administrador') {
-    alert('Solo un administrador puede mover cotizaciones en el canal de ventas.');
+  if (!canManageSalesFlow()) {
+    alert('Solo Administrador o Coordinador pueden mover solicitudes en el canal de ventas.');
     return;
   }
   
-  const statuses = ['Borrador', 'Autorizada', 'Vendido', 'Entregado'];
-  const currentIndex = statuses.indexOf(currentStatus);
-  if (currentIndex === -1) return;
-  
-  let newIndex = currentIndex + (direction === 'down' ? 1 : -1);
-  if (newIndex < 0 || newIndex >= statuses.length) return;
-  
-  const targetStatus = statuses[newIndex];
+  const quote = allQuotes.find(item => Number(item.id) === Number(quoteId));
+  const isChg025 = quote?.flujo_version === 'CHG-025';
+  let targetStatus;
+  if (isChg025) {
+    const condition = normalizedQuoteCondition(quote.condiciones_pago);
+    if (direction === 'down' && ['Autorizada', 'Vendido'].includes(currentStatus)) {
+      targetStatus = 'Entregado';
+    } else if (direction === 'up' && currentStatus === 'Entregado') {
+      targetStatus = condition === 'CONTADO' ? 'Vendido' : 'Autorizada';
+    } else {
+      return;
+    }
+  } else {
+    const statuses = ['Borrador', 'Autorizada', 'Vendido', 'Entregado'];
+    const currentIndex = statuses.indexOf(currentStatus);
+    if (currentIndex === -1) return;
+    const newIndex = currentIndex + (direction === 'down' ? 1 : -1);
+    if (newIndex < 0 || newIndex >= statuses.length) return;
+    targetStatus = statuses[newIndex];
+  }
   
   try {
     const res = await fetch(`${API_URL}/api/cotizaciones/${quoteId}/status`, {
@@ -1251,15 +1285,30 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
       const itemsSummary = (q.items || [])
         .map(item => `${item.producto_nombre.split(' ')[0]} (x${item.cantidad_ordenada || item.cantidad || 0})`)
         .join(', ') || 'Sin productos';
+      const condition = normalizedQuoteCondition(q.condiciones_pago);
+      const decisionActions = canManageSalesFlow() && ['CREDITO', 'APARTADO'].includes(condition)
+        ? `<div class="kanban-decision-actions" style="display:flex;gap:6px;margin-top:8px;">
+             <button type="button" class="btn btn-primary" style="padding:6px 8px;" onclick="decideCommercialRequest(${q.id}, 'AUTORIZAR', event)">Autorizar</button>
+             <button type="button" class="btn btn-danger" style="padding:6px 8px;" onclick="decideCommercialRequest(${q.id}, 'RECHAZAR', event)">Rechazar</button>
+           </div>`
+        : '';
+      const cashActions = canManageSalesFlow() && condition === 'CONTADO'
+        ? `<div class="kanban-decision-actions" style="display:flex;gap:6px;margin-top:8px;">
+             <button type="button" class="btn btn-secondary" style="padding:6px 8px;" ${Number(q.venta_confirmada) === 1 ? 'disabled' : ''} onclick="confirmCashProposal(${q.id}, 'venta', event)">✓ Venta</button>
+             <button type="button" class="btn btn-secondary" style="padding:6px 8px;" ${Number(q.cobro_confirmado) === 1 ? 'disabled' : ''} onclick="confirmCashProposal(${q.id}, 'cobro', event)">✓ Cobro</button>
+           </div>`
+        : '';
       card.innerHTML = `
         <div class="kanban-card-title"><span>${escapeHtml(q.cliente_nombre)}</span></div>
         <div class="kanban-card-desc">${escapeHtml(itemsSummary)}</div>
         <div style="font-size:11px; color:var(--text-light); font-weight:500;">Folio: ${escapeHtml(q.folio_cotizacion || '-')}</div>
+        <div style="font-size:11px; color:var(--text-light);">${escapeHtml(condition)}</div>
         <div class="kanban-card-meta">
           <span style="font-size:11px; color:var(--text-light);">👤 ${escapeHtml((q.asesor_nombre || '').split(' ')[0])}</span>
-          <span class="kanban-card-price">$${Number(q.total_mxn || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>
+          ${condition === 'APARTADO' ? '' : `<span class="kanban-card-price">$${Number(q.total_mxn || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>`}
         </div>
         <div style="margin-top:8px;"><span class="badge badge-warning">Pendiente de autorización</span></div>
+        ${decisionActions}${cashActions}
       `;
       col.el.appendChild(card);
       return;
@@ -1274,7 +1323,7 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
     const card = document.createElement('div');
     card.className = 'kanban-card';
     card.id = `quote-card-${q.id}`;
-    card.draggable = user?.nivel_rol === 'Administrador';
+    card.draggable = canManageSalesFlow() && q.flujo_version !== 'CHG-025';
     if (card.draggable) card.addEventListener('dragstart', (e) => drag(e, q.id));
     
     // single click to view detail modal (ignoring buttons)
@@ -1287,6 +1336,7 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
     
     // Build items summary label
     const itemsSummary = q.items.map(i => `${i.producto_nombre.split(' ')[0]} (x${i.cantidad_ordenada || i.cantidad || 0})`).join(', ') || 'Sin productos';
+    const condition = normalizedQuoteCondition(q.condiciones_pago);
     
     const prevLabels = {
       'Vendido': 'Cotizado',
@@ -1297,8 +1347,9 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
       'Vendido': 'Entregado'
     };
     
-    const prevLabel = prevLabels[status] || '';
-    const nextLabel = nextLabels[status] || '';
+    const isChg025 = q.flujo_version === 'CHG-025';
+    const prevLabel = isChg025 && status === 'Entregado' ? 'Revertir' : (prevLabels[status] || '');
+    const nextLabel = isChg025 && ['Autorizada', 'Vendido'].includes(status) ? 'Entregar' : (nextLabels[status] || '');
     const isSelected = selectedKanbanQuoteIds.has(Number(q.id));
     
     card.innerHTML = `
@@ -1310,11 +1361,11 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
       <div style="font-size:11px; color:var(--text-light); font-weight: 500;">Folio: ${q.folio_cotizacion}</div>
       <div class="kanban-card-meta">
         <span style="font-size: 11px; color: var(--text-light);">👤 ${q.asesor_nombre.split(' ')[0]}</span>
-        <span class="kanban-card-price">$${q.total_mxn.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>
+        ${condition === 'APARTADO' ? '' : `<span class="kanban-card-price">$${q.total_mxn.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>`}
       </div>
       <div class="kanban-card-mobile-arrows">
-        ${user?.nivel_rol === 'Administrador' && status !== 'Autorizada' ? `<button class="kanban-arrow-btn prev-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'up', event)">▲ ${prevLabel}</button>` : ''}
-        ${user?.nivel_rol === 'Administrador' && status !== 'Entregado' ? `<button class="kanban-arrow-btn next-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'down', event)">▼ ${nextLabel}</button>` : ''}
+        ${canManageSalesFlow() && prevLabel ? `<button class="kanban-arrow-btn prev-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'up', event)">▲ ${prevLabel}</button>` : ''}
+        ${canManageSalesFlow() && nextLabel ? `<button class="kanban-arrow-btn next-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'down', event)">▼ ${nextLabel}</button>` : ''}
       </div>
     `;
     
@@ -1440,9 +1491,11 @@ window.deleteSelectedKanbanQuotes = async function(status = null) {
 window.filterAndRenderKanban = function() {
   const searchInput = document.getElementById('kanban-search');
   const advisorSelect = document.getElementById('kanban-advisor-filter');
+  const paymentSelect = document.getElementById('kanban-payment-filter');
   
   const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
   const advisorId = advisorSelect ? advisorSelect.value : 'ALL';
+  const paymentCondition = paymentSelect ? paymentSelect.value : 'ALL';
   
   let filtered = allQuotes;
   let filteredProspects = allProspects;
@@ -1450,6 +1503,9 @@ window.filterAndRenderKanban = function() {
   if (advisorId && advisorId !== 'ALL') {
     filtered = filtered.filter(q => q.asesor_id === Number(advisorId));
     filteredProspects = filteredProspects.filter(p => p.asesor_id === Number(advisorId));
+  }
+  if (paymentCondition !== 'ALL') {
+    filtered = filtered.filter(q => normalizedQuoteCondition(q.condiciones_pago) === paymentCondition);
   }
   
   if (term) {
@@ -1477,6 +1533,33 @@ document.getElementById('kanban-search').addEventListener('input', () => {
 document.getElementById('kanban-advisor-filter').addEventListener('change', () => {
   filterAndRenderKanban();
 });
+document.getElementById('kanban-payment-filter')?.addEventListener('change', filterAndRenderKanban);
+
+window.decideCommercialRequest = async function(quoteId, decision, event) {
+  event?.stopPropagation();
+  const motivo = decision === 'RECHAZAR' ? (prompt('Motivo del rechazo (opcional):') || '') : '';
+  const response = await fetch(`${API_URL}/api/cotizaciones/${quoteId}/decision`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify({ decision, motivo })
+  });
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || 'No fue posible registrar la decisión.');
+  await loadCRMBoardData();
+};
+
+window.confirmCashProposal = async function(quoteId, kind, event) {
+  event?.stopPropagation();
+  const body = kind === 'venta' ? { venta_confirmada: true } : { cobro_confirmado: true };
+  const response = await fetch(`${API_URL}/api/cotizaciones/${quoteId}/confirmaciones-contado`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(body)
+  });
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || 'No fue posible confirmar la propuesta.');
+  await loadCRMBoardData();
+};
 
 // Load Client Details and visits history in modal
 async function loadClientCRMDetails(clientId) {
@@ -1572,12 +1655,27 @@ window.showQuoteDetails = async function(quoteId) {
       statusBadge.style.color = '#95a5a6';
     }
 
+    const detailCondition = normalizedQuoteCondition(quote.condiciones_pago);
+    const isLayawayDetail = detailCondition === 'APARTADO';
+    const isCashDetail = detailCondition === 'CONTADO';
+    document.querySelectorAll('#quote-detail-modal .quote-detail-money').forEach(element => {
+      element.style.display = isLayawayDetail ? 'none' : '';
+    });
+    document.querySelectorAll('#quote-detail-modal .quote-detail-list').forEach(element => {
+      element.style.display = isCashDetail ? '' : 'none';
+    });
+    document.querySelectorAll('#quote-detail-modal .quote-detail-proposed').forEach(element => {
+      element.style.display = isCashDetail ? '' : 'none';
+    });
+    const netHeading = document.getElementById('quote-detail-net-heading');
+    if (netHeading) netHeading.textContent = detailCondition === 'CREDITO' ? 'Precio a cosecha' : 'Precio neto';
+
     // 3. Render products table in View Mode
     const productsBody = document.getElementById('quote-detail-products-body');
     productsBody.innerHTML = '';
     
     if (!quote.items || quote.items.length === 0) {
-      productsBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-light); padding: 12px;">Sin productos en esta cotización.</td></tr>`;
+      productsBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-light); padding: 12px;">Sin productos en esta solicitud.</td></tr>`;
     } else {
       quote.items.forEach(item => {
         const qty = item.cantidad_ordenada || item.cantidad || 0;
@@ -1587,9 +1685,10 @@ window.showQuoteDetails = async function(quoteId) {
           <tr>
             <td style="padding: 8px; border-bottom: 1px solid var(--border);">${escapeHtml(item.producto_nombre || '')}${tamanoBadge}</td>
             <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center;">${qty}</td>
-            <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: right;">$${parseFloat(item.precio_lista_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-            <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: right;">$${parseFloat(item.precio_neto_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-            <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 500;">$${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+            <td class="quote-detail-money quote-detail-list" style="${isCashDetail ? '' : 'display:none;'} padding: 8px; border-bottom: 1px solid var(--border); text-align: right;">$${parseFloat(item.precio_lista_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+            <td class="quote-detail-money" style="${isLayawayDetail ? 'display:none;' : ''} padding: 8px; border-bottom: 1px solid var(--border); text-align: right;">$${parseFloat(item.precio_neto_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+            <td class="quote-detail-money quote-detail-proposed" style="${isCashDetail ? '' : 'display:none;'} padding: 8px; border-bottom: 1px solid var(--border); text-align: right;">${item.precio_propuesto_unitario == null ? '—' : `$${Number(item.precio_propuesto_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`}</td>
+            <td class="quote-detail-money" style="${isLayawayDetail ? 'display:none;' : ''} padding: 8px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 500;">$${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
           </tr>
         `;
       });
@@ -1606,7 +1705,8 @@ window.showQuoteDetails = async function(quoteId) {
 
     // Only an administrator can authorize a pending quotation.
     const authBtn = document.getElementById('btn-authorize-quote');
-    if (isBorrador && hasAdminAuthorizationPermission) {
+    const isChg025 = quote.flujo_version === 'CHG-025';
+    if (isBorrador && hasAdminAuthorizationPermission && !isChg025) {
       authBtn.style.display = 'inline-flex';
       authBtn.onclick = async () => {
         if (confirm(`¿Está seguro que desea autorizar la cotización con Folio ${quote.folio_cotizacion}?`)) {
@@ -1619,7 +1719,7 @@ window.showQuoteDetails = async function(quoteId) {
 
     // Edit button: Admin/Coordinator can edit any. Advisor can edit only their own draft quotes.
     const editBtn = document.getElementById('btn-edit-quote');
-    if (hasAdminOrCoordPermission || (isOwner && isBorrador)) {
+    if (!isChg025 && (hasAdminOrCoordPermission || (isOwner && isBorrador))) {
       editBtn.style.display = 'inline-block';
     } else {
       editBtn.style.display = 'none';
@@ -1627,16 +1727,42 @@ window.showQuoteDetails = async function(quoteId) {
 
     // Delete button: Admin/Coordinator can delete any. Advisor can delete only their own draft quotes.
     const deleteBtn = document.getElementById('btn-delete-quote');
-    if (hasAdminOrCoordPermission || (isOwner && isBorrador)) {
+    const deletableChg025 = !isChg025 || ['Borrador', 'Pendiente', 'Pendiente Autorización', 'Rechazada', 'Cancelada'].includes(quote.estatus);
+    if (deletableChg025 && (hasAdminOrCoordPermission || (isOwner && isBorrador))) {
       deleteBtn.style.display = 'inline-block';
     } else {
       deleteBtn.style.display = 'none';
     }
 
+    const cancelBtn = document.getElementById('btn-cancel-commercial-request');
+    const canCancelChg025 = isChg025
+      && hasAdminOrCoordPermission
+      && !['Entregado', 'Cancelada', 'Rechazada'].includes(quote.estatus);
+    if (cancelBtn) cancelBtn.style.display = canCancelChg025 ? 'inline-flex' : 'none';
+
     openModal('quote-detail-modal');
   } catch (err) {
     console.error('Failed to show quote details:', err);
     alert('Error al mostrar los detalles de la cotización: ' + err.message);
+  }
+};
+
+window.cancelCommercialRequest = async function(event) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  if (!activeQuote || !confirm(`¿Cancelar la solicitud ${activeQuote.folio_cotizacion}? La reserva activa se liberará automáticamente.`)) return;
+  try {
+    const response = await fetch(`${API_URL}/api/cotizaciones/${activeQuote.id}/status`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ estatus: 'Cancelada' })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'No fue posible cancelar la solicitud.');
+    closeModal('quote-detail-modal');
+    await loadCRMBoardData();
+  } catch (error) {
+    alert(error.message);
   }
 };
 
@@ -1713,7 +1839,7 @@ window.toggleQuoteEditMode = async function(isEdit) {
   }
 };
 
-window.addEditQuoteItemRow = function(prodId = '', qty = 1, tamano = '') {
+window.addEditQuoteItemRow = function(prodId = '', qty = 1) {
   editQuoteItemsCount++;
   const container = document.getElementById('edit-quote-items-container');
   
@@ -1730,20 +1856,9 @@ window.addEditQuoteItemRow = function(prodId = '', qty = 1, tamano = '') {
     options += `<option value="${p.id}" ${p.id === Number(prodId) ? 'selected' : ''}>${p.producto} ($${p.list_price_mxn.toLocaleString('es-MX')} MXN)</option>`;
   });
 
-  const selectedProd = (allProducts || []).find(p => p.id === Number(prodId));
-  const sizes = getSizesForProduct(selectedProd);
-  const showTamano = sizes.length > 0;
-  let tamanoOptions = '<option value="">-- Tamaño --</option>';
-  sizes.forEach(s => {
-    tamanoOptions += `<option value="${escapeAttribute(s)}" ${s === tamano ? 'selected' : ''}>${escapeHtml(s)}</option>`;
-  });
-  
   div.innerHTML = `
     <div style="flex: 2;">
       <select class="form-input edit-item-product-select" style="margin-bottom:0;" required>${options}</select>
-    </div>
-    <div class="edit-item-tamano-group" style="flex: 1; ${showTamano ? '' : 'display: none;'}">
-      <select class="form-input edit-item-tamano-select" style="margin-bottom:0;">${tamanoOptions}</select>
     </div>
     <div style="width: 100px;">
       <input type="number" class="form-input edit-item-qty-input" style="margin-bottom:0;" min="1" value="${qty}" required oninput="recalculateEditQuoteTotal()">
@@ -1754,24 +1869,7 @@ window.addEditQuoteItemRow = function(prodId = '', qty = 1, tamano = '') {
   `;
   container.appendChild(div);
 
-  const prodSelect = div.querySelector('.edit-item-product-select');
-  const tamanoGroup = div.querySelector('.edit-item-tamano-group');
-  const tamanoSelect = div.querySelector('.edit-item-tamano-select');
-
-  prodSelect.addEventListener('change', () => {
-    const pId = Number(prodSelect.value);
-    const pObj = (allProducts || []).find(p => p.id === pId);
-    const pSizes = getSizesForProduct(pObj);
-    if (pSizes.length > 0) {
-      tamanoGroup.style.display = '';
-      tamanoSelect.innerHTML = '<option value="">-- Tamaño --</option>' + pSizes.map(s => `<option value="${escapeAttribute(s)}">${escapeHtml(s)}</option>`).join('');
-    } else {
-      tamanoGroup.style.display = 'none';
-      tamanoSelect.innerHTML = '<option value="">-- Tamaño --</option>';
-      tamanoSelect.value = '';
-    }
-    recalculateEditQuoteTotal();
-  });
+  div.querySelector('.edit-item-product-select')?.addEventListener('change', recalculateEditQuoteTotal);
 };
 
 window.removeEditQuoteItemRow = function(rowIndex) {
@@ -1790,14 +1888,12 @@ window.recalculateEditQuoteTotal = async function() {
   
   rows.forEach(r => {
     const prodSelect = r.querySelector('.edit-item-product-select');
-    const tamanoSelect = r.querySelector('.edit-item-tamano-select');
     const qtyInput = r.querySelector('.edit-item-qty-input');
     
     if (prodSelect && prodSelect.value) {
       items.push({
         producto_id: Number(prodSelect.value),
-        cantidad: Number(qtyInput.value) || 1,
-        tamano: (tamanoSelect && tamanoSelect.value) ? tamanoSelect.value.trim() : null
+        cantidad: Number(qtyInput.value) || 1
       });
     }
   });
@@ -1816,6 +1912,7 @@ window.recalculateEditQuoteTotal = async function() {
       body: JSON.stringify({
         cliente_id: activeQuote.cliente_id,
         temporada_id: Number(seasonId) || null,
+        condiciones_pago: document.getElementById('edit-quote-condicion').value,
         nucle_aplicado: Boolean(document.getElementById('edit-quote-nucle')?.checked),
         items
       })
@@ -1845,14 +1942,12 @@ window.saveEditQuote = async function() {
   
   rows.forEach(r => {
     const prodSelect = r.querySelector('.edit-item-product-select');
-    const tamanoSelect = r.querySelector('.edit-item-tamano-select');
     const qtyInput = r.querySelector('.edit-item-qty-input');
     
     if (prodSelect && prodSelect.value) {
       items.push({
         producto_id: Number(prodSelect.value),
-        cantidad: Number(qtyInput.value) || 1,
-        tamano: (tamanoSelect && tamanoSelect.value) ? tamanoSelect.value.trim() : null
+        cantidad: Number(qtyInput.value) || 1
       });
     }
   });
@@ -2180,7 +2275,7 @@ async function loadCotizadorConfig() {
     quoteItemsCount = 0;
     addQuoteItemRow(); // Add default first item row
     
-    resetVirtualSheet();
+    document.getElementById('client-quick-details').style.display = 'none';
     registerLiveCalculatorEvents();
   } catch (err) {
     console.error('Failed to load cotizador options:', err);
@@ -2199,7 +2294,7 @@ function addQuoteItemRow() {
 
   let options = '<option value="">-- Selecciona un Producto --</option>';
   allProducts.forEach(p => {
-    options += `<option value="${p.id}">${p.producto} ($${p.list_price_mxn.toLocaleString('es-MX')} MXN)</option>`;
+    options += `<option value="${p.id}">${p.producto}</option>`;
   });
 
   wrapper.innerHTML = `
@@ -2212,12 +2307,6 @@ function addQuoteItemRow() {
         <select class="form-input item-product-select" required>${options}</select>
         <span class="mobile-item-package">Presentación agrícola</span>
       </div>
-      <div class="form-group item-tamano-group" style="display: none; min-width: 120px;">
-        <label>Tamaño</label>
-        <select class="form-input item-tamano-select">
-          <option value="">-- Tamaño --</option>
-        </select>
-      </div>
       <div class="form-group item-qty-group">
         <label>Cantidad</label>
         <span class="mobile-quantity-label">Cantidad</span>
@@ -2229,13 +2318,17 @@ function addQuoteItemRow() {
         <small class="mobile-quantity-hint">Toca el número para escribir</small>
       </div>
       <div class="form-group item-price-group">
-        <label>Precio base</label>
+        <label class="item-price-label">Precio del mes</label>
         <input type="text" class="form-input item-calc-unit-price" style="background-color: var(--bg);" value="-" readonly>
         <div class="item-monthly-discount-summary" style="font-size:10px; color:var(--text-light); margin-top:4px; line-height:1.4;">
           <span>Descuento incluido en precio del mes: <strong class="item-monthly-discount">$0.00 MXN</strong></span><br>
           <span>Disponible para el asesor: <strong class="item-advisor-available">$0.00 MXN</strong></span>
         </div>
         <span class="mobile-item-subtotal">Subtotal —</span>
+      </div>
+      <div class="form-group item-proposed-price-group">
+        <label>Precio propuesto <small>(opcional)</small></label>
+        <input type="number" class="form-input item-proposed-price-input" min="0" step="0.01" placeholder="Precio por producto">
       </div>
       <button type="button" class="btn-remove" aria-label="Eliminar producto" onclick="removeQuoteItemRow(${rowNum})">
         <span class="desktop-remove-icon" aria-hidden="true">🗑️</span>
@@ -2292,24 +2385,6 @@ function addQuoteItemRow() {
 
   container.appendChild(wrapper);
 
-  const prodSelect = wrapper.querySelector('.item-product-select');
-  const tamanoGroup = wrapper.querySelector('.item-tamano-group');
-  const tamanoSelect = wrapper.querySelector('.item-tamano-select');
-
-  prodSelect.addEventListener('change', () => {
-    const prodId = Number(prodSelect.value);
-    const prod = (allProducts || []).find(p => p.id === prodId);
-    const sizes = getSizesForProduct(prod);
-    if (sizes.length > 0) {
-      tamanoGroup.style.display = 'block';
-      tamanoSelect.innerHTML = '<option value="">-- Tamaño --</option>' + sizes.map(s => `<option value="${escapeAttribute(s)}">${escapeHtml(s)}</option>`).join('');
-    } else {
-      tamanoGroup.style.display = 'none';
-      tamanoSelect.innerHTML = '<option value="">-- Tamaño --</option>';
-      tamanoSelect.value = '';
-    }
-  });
-
   wrapper.querySelectorAll('[data-quantity-delta]').forEach(button => {
     button.addEventListener('click', () => {
       changeQuoteQuantity(button, Number(button.dataset.quantityDelta || 0));
@@ -2323,6 +2398,7 @@ function addQuoteItemRow() {
     finalPriceInput.addEventListener('blur', e => onFinalPriceInputBlur(finalPriceInput, e));
   }
 
+  updateQuoteConditionUI({ recalculate: false });
   debouncedLiveCalculation();
 }
 
@@ -2358,7 +2434,7 @@ function getQuotePayload() {
   const wrappers = document.querySelectorAll('#items-builder-container .item-row-wrapper');
   wrappers.forEach(w => {
     const select = w.querySelector('.item-product-select');
-    const tamanoSelect = w.querySelector('.item-tamano-select');
+    const proposedPriceInput = w.querySelector('.item-proposed-price-input');
     const qtyInput = w.querySelector('.item-qty-input');
     const slider = w.querySelector('.item-discount-slider');
     const finalInput = w.querySelector('.item-final-price-input');
@@ -2380,7 +2456,7 @@ function getQuotePayload() {
       items.push({
         producto_id: Number(select.value),
         cantidad: Number(qtyInput.value),
-        tamano: (tamanoSelect && tamanoSelect.value) ? tamanoSelect.value.trim() : null,
+        precio_propuesto: proposedPriceInput?.value ? Number(proposedPriceInput.value) : null,
         descuento_aplicado: additionalDiscount
       });
     }
@@ -2402,20 +2478,46 @@ function getQuotePayload() {
   };
 }
 
-function updateCreditAttachmentControl() {
+function updateQuoteConditionUI({ recalculate = true } = {}) {
   const condition = document.getElementById('quote-condicion')?.value;
-  const attachButton = document.getElementById('btn-attach-credit-pdf');
-  const status = document.getElementById('quote-credit-pdf-status');
-  if (!attachButton || !status) return;
+  const isCash = condition === 'CONTADO';
   const isCredit = condition === 'CREDITO';
-  attachButton.style.display = isCredit ? 'inline-flex' : 'none';
-  status.style.display = isCredit && selectedCreditAttachmentFile ? 'block' : 'none';
-  if (!isCredit) {
-    selectedCreditAttachmentFile = null;
-    const input = document.getElementById('quote-credit-pdf-input');
-    if (input) input.value = '';
-    status.textContent = '';
+  const isLayaway = condition === 'APARTADO';
+  const nucleControl = document.getElementById('quote-nucle-control');
+  const nucleInput = document.getElementById('quote-nucle');
+  if (nucleControl) nucleControl.style.display = isCash ? 'inline-flex' : 'none';
+  if (!isCash && nucleInput) nucleInput.checked = false;
+
+  document.querySelectorAll('#items-builder-container .item-row-wrapper').forEach(wrapper => {
+    const priceGroup = wrapper.querySelector('.item-price-group');
+    const priceLabel = wrapper.querySelector('.item-price-label');
+    const monthlyDiscountSummary = wrapper.querySelector('.item-monthly-discount-summary');
+    const proposedGroup = wrapper.querySelector('.item-proposed-price-group');
+    const discountRow = wrapper.querySelector('.item-discount-row');
+    if (priceGroup) priceGroup.style.display = isLayaway ? 'none' : '';
+    if (priceLabel) priceLabel.textContent = isCredit ? 'Precio a cosecha' : 'Precio del mes';
+    if (monthlyDiscountSummary) monthlyDiscountSummary.style.display = isCash ? '' : 'none';
+    if (proposedGroup) proposedGroup.style.display = isCash ? '' : 'none';
+    if (!isCash && discountRow) discountRow.style.display = 'none';
+  });
+
+  const desktopLabel = document.querySelector('.quote-submit-button .desktop-submit-label');
+  const mobileLabel = document.querySelector('.quote-submit-button .mobile-submit-label');
+  const labels = {
+    CONTADO: ['💾 Guardar y registrar propuesta', 'Guardar propuesta'],
+    CREDITO: ['📨 Guardar y enviar para autorización', 'Enviar para autorización'],
+    APARTADO: ['📌 Solicitar apartado', 'Solicitar apartado']
+  }[condition] || ['Guardar', 'Guardar'];
+  if (desktopLabel) desktopLabel.textContent = labels[0];
+  if (mobileLabel) mobileLabel.textContent = labels[1];
+
+  const viewCreditDocument = document.getElementById('btn-view-credit-pdf');
+  const uploadCreditDocument = document.getElementById('btn-upload-credit-document');
+  if (viewCreditDocument) viewCreditDocument.style.display = isCredit ? 'inline-flex' : 'none';
+  if (uploadCreditDocument) {
+    uploadCreditDocument.style.display = isCredit && user?.nivel_rol === 'Administrador' ? 'inline-flex' : 'none';
   }
+  if (recalculate) debouncedLiveCalculation();
 }
 
 function readFileAsBase64(file) {
@@ -2427,9 +2529,9 @@ function readFileAsBase64(file) {
   });
 }
 
-async function uploadCreditAttachment(quoteId, file) {
+async function uploadInstitutionalCreditDocument(file) {
   const contenidoBase64 = await readFileAsBase64(file);
-  const res = await fetch(`${API_URL}/api/cotizaciones/${quoteId}/adjuntos`, {
+  const res = await fetch(`${API_URL}/api/documentos-credito/activo`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({
@@ -2439,28 +2541,56 @@ async function uploadCreditAttachment(quoteId, file) {
     })
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'No fue posible adjuntar el PDF.');
+  if (!res.ok) throw new Error(data.error || 'No fue posible publicar el PDF institucional.');
+  return data;
 }
 
-document.getElementById('quote-condicion')?.addEventListener('change', updateCreditAttachmentControl);
-document.getElementById('btn-attach-credit-pdf')?.addEventListener('click', () => {
-  document.getElementById('quote-credit-pdf-input')?.click();
+document.getElementById('quote-condicion')?.addEventListener('change', () => updateQuoteConditionUI());
+document.getElementById('btn-view-credit-pdf')?.addEventListener('click', async () => {
+  const opened = window.open('about:blank', '_blank');
+  if (opened) opened.opener = null;
+  try {
+    if (!opened) throw new Error('El navegador bloqueó la ventana del PDF. Habilita ventanas emergentes e intenta de nuevo.');
+    const metadataResponse = await fetch(`${API_URL}/api/documentos-credito/activo`, { headers: getHeaders() });
+    const metadata = await metadataResponse.json();
+    if (!metadataResponse.ok) throw new Error(metadata.error || 'Documento no disponible.');
+    const response = await fetch(`${API_URL}/api/documentos-credito/activo/descargar`, { headers: getHeaders() });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'No fue posible abrir el documento.');
+    }
+    const objectUrl = URL.createObjectURL(await response.blob());
+    opened.location.href = objectUrl;
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    if (opened) opened.close();
+    alert(error.message);
+  }
 });
-document.getElementById('quote-credit-pdf-input')?.addEventListener('change', event => {
+document.getElementById('btn-upload-credit-document')?.addEventListener('click', () => {
+  document.getElementById('credit-document-admin-input')?.click();
+});
+document.getElementById('credit-document-admin-input')?.addEventListener('change', async event => {
   const file = event.target.files?.[0];
   if (!file) return;
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   if (!isPdf || file.size > 8 * 1024 * 1024) {
-    selectedCreditAttachmentFile = null;
     event.target.value = '';
     alert('Selecciona un PDF válido de hasta 8 MB.');
-    updateCreditAttachmentControl();
     return;
   }
-  selectedCreditAttachmentFile = file;
-  const status = document.getElementById('quote-credit-pdf-status');
-  if (status) status.textContent = `PDF seleccionado: ${file.name}`;
-  updateCreditAttachmentControl();
+  const status = document.getElementById('quote-credit-document-status');
+  try {
+    const data = await uploadInstitutionalCreditDocument(file);
+    if (status) {
+      status.style.display = 'block';
+      status.textContent = `Documento activo: ${data.nombre_archivo}`;
+    }
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    event.target.value = '';
+  }
 });
 
 // Debounced recalculation of quote
@@ -2469,7 +2599,7 @@ function debouncedLiveCalculation() {
   calcDebounceTimeout = setTimeout(async () => {
     const payload = getQuotePayload();
     if (!payload.client_id || payload.items.length === 0) {
-      resetVirtualSheet();
+      document.getElementById('client-quick-details').style.display = 'none';
       return;
     }
     
@@ -2481,7 +2611,8 @@ function debouncedLiveCalculation() {
           cliente_id: payload.client_id,
           items: payload.items,
           temporada_id: payload.temporada_id,
-          nucle_aplicado: payload.nucle_aplicado
+          nucle_aplicado: payload.nucle_aplicado,
+          condiciones_pago: payload.condiciones_pago
         })
       });
       
@@ -2523,7 +2654,10 @@ function debouncedLiveCalculation() {
             const hasAdvisorDiscount = configuredDiscountCap > 0 || embeddedDiscount > 0;
 
             // El precio visible es el precio base de Productos; la barra explica el descuento acumulado.
-            unitPriceInput.value = `$${Number(calcItem.precio_catalogo).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
+            const visibleUnitPrice = payload.condiciones_pago === 'CREDITO'
+              ? Number(calcItem.precio_final || 0)
+              : Number(calcItem.precio_catalogo || 0);
+            unitPriceInput.value = `$${visibleUnitPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
             if (monthlyDiscountLabel) {
               monthlyDiscountLabel.textContent = `$${embeddedDiscount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
             }
@@ -2613,7 +2747,7 @@ function debouncedLiveCalculation() {
         }
       });
       
-      updateVirtualSheet(calc, payload);
+      updateInternalProposalClientDetails(payload);
     } catch (err) {
       console.warn("Live calculator error:", err.message);
     }
@@ -2747,9 +2881,8 @@ window.onFinalPriceInputBlur = function(input, event) {
 
 // Recalculate grand total factoring in any advisor discounts from sliders or manual price inputs
 function recalcTotalsWithDiscounts() {
-  let adjustedTotal = 0;
   const wrappers = document.querySelectorAll('#items-builder-container .item-row-wrapper');
-  wrappers.forEach((wrapper, idx) => {
+  wrappers.forEach(wrapper => {
     const select = wrapper.querySelector('.item-product-select');
     const qtyInput = wrapper.querySelector('.item-qty-input');
     const slider = wrapper.querySelector('.item-discount-slider');
@@ -2776,197 +2909,24 @@ function recalcTotalsWithDiscounts() {
     }
 
     const lineSubtotal = Math.round(unitPrice * qty * 100) / 100;
-    adjustedTotal += lineSubtotal;
-
     if (mobileSubtotal) {
       mobileSubtotal.textContent = `Subtotal $${lineSubtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
     }
-
-    // Also update virtual sheet preview table row if rendered
-    const previewRows = document.querySelectorAll('#preview-table-body tr');
-    if (previewRows && previewRows[idx]) {
-      const cells = previewRows[idx].querySelectorAll('td');
-      if (cells.length >= 6) {
-        cells[1].textContent = String(qty);
-        cells[4].textContent = `$${unitPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-        cells[5].textContent = `$${lineSubtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-      }
-    }
   });
-
-  const totalEl = document.getElementById('preview-total-val');
-  if (totalEl) {
-    totalEl.textContent = `$${adjustedTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  }
-  const puntosEl = document.getElementById('preview-puntos-val');
-  if (puntosEl) {
-    puntosEl.textContent = `$${(adjustedTotal * 0.03).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  }
-  const cuponEl = document.getElementById('preview-cupon-val');
-  if (cuponEl) {
-    cuponEl.textContent = `$${(adjustedTotal * 0.01).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  }
-  updateMobileQuoteSummary(adjustedTotal);
 }
 
-function updateMobileQuoteSummary(total) {
-  const safeTotal = Number(total) || 0;
-  const currency = value => `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-  const totalEl = document.getElementById('mobile-quote-total');
-  const pointsEl = document.getElementById('mobile-quote-points');
-  const couponEl = document.getElementById('mobile-quote-coupon');
-  if (totalEl) totalEl.textContent = `${currency(safeTotal)} MXN`;
-  if (pointsEl) pointsEl.textContent = currency(safeTotal * 0.03);
-  if (couponEl) couponEl.textContent = currency(safeTotal * 0.01);
-}
-
-
-// Reset printable sheet view
-function resetVirtualSheet() {
-  document.getElementById('preview-client-name').textContent = 'Seleccione un cliente';
-  document.getElementById('preview-client-contact').textContent = '-';
-  document.getElementById('preview-client-phone').textContent = '-';
-  document.getElementById('preview-client-location').textContent = '-';
-  
-  document.getElementById('preview-ciclo-text').textContent = '-';
-  document.getElementById('preview-condiciones-text').textContent = '-';
-  document.getElementById('preview-temporada-text').textContent = '-';
-  
-  document.getElementById('preview-cell-financiera').style.display = 'none';
-  document.getElementById('preview-financiera-text').textContent = '-';
-  
-  document.getElementById('preview-table-body').innerHTML = `
-    <tr>
-      <td colspan="6" style="text-align: center; color: var(--text-light); padding: 30px;">
-        No hay productos agregados a la cotización.
-      </td>
-    </tr>
-  `;
-  document.getElementById('preview-discount-vol').textContent = '-';
-  document.getElementById('preview-row-anticipo').style.display = 'none';
-  document.getElementById('preview-row-nucle').style.display = 'none';
-  document.getElementById('preview-total-val').textContent = '$0.00 MXN';
-  document.getElementById('preview-puntos-val').textContent = '$0.00 MXN';
-  document.getElementById('preview-cupon-val').textContent = '$0.00 MXN';
-  updateMobileQuoteSummary(0);
-  document.getElementById('preview-notes-content').textContent = 'El precio final calculado incluye los descuentos por volumen y campaña en base a las reglas de la distribuidora. Sujeto a cambios sin previo aviso.';
-  
-  document.getElementById('client-quick-details').style.display = 'none';
-}
-
-// Populate printable sheet with calculation details
-function updateVirtualSheet(calc, payload) {
-  const client = allClients.find(c => c.id === payload.client_id);
-  if (client) {
-    // Show quick form helper card
-    document.getElementById('client-quick-details').style.display = 'block';
-    document.getElementById('qc-contacto').textContent = client.contacto || '-';
-    document.getElementById('qc-telefono').textContent = client.telefono || '-';
-    document.getElementById('qc-ubicacion').textContent = client.ubicacion || '-';
-    document.getElementById('qc-superficie').textContent = client.superficie_text || '-';
-    
-    // Fill virtual sheet fields
-    document.getElementById('preview-client-name').textContent = client.nombre;
-    document.getElementById('preview-client-contact').textContent = client.contacto ? `Contacto: ${client.contacto}` : '-';
-    document.getElementById('preview-client-phone').textContent = client.telefono ? `Tel: ${client.telefono}` : '-';
-    document.getElementById('preview-client-location').textContent = client.ubicacion ? `Ubicación: ${client.ubicacion}` : '-';
+function updateInternalProposalClientDetails(payload) {
+  const card = document.getElementById('client-quick-details');
+  const client = allClients.find(item => item.id === payload.client_id);
+  if (!card || !client) {
+    if (card) card.style.display = 'none';
+    return;
   }
-  
-  document.getElementById('preview-ciclo-text').textContent = payload.ciclo_agricola;
-  document.getElementById('preview-condiciones-text').textContent = payload.condiciones_pago;
-  document.getElementById('preview-temporada-text').textContent = calc.temporada_nombre;
-  
-  // Financiera cell
-  const finCell = document.getElementById('preview-cell-financiera');
-  if (payload.condiciones_pago === 'CREDITO' && payload.financiera) {
-    finCell.style.display = 'block';
-    document.getElementById('preview-financiera-text').textContent = payload.financiera;
-  } else {
-    finCell.style.display = 'none';
-  }
-  
-  // Set dates
-  const today = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
-  document.getElementById('preview-date').textContent = `FECHA: ${today}`;
-  document.getElementById('preview-folio').textContent = `CG-2026-PENDIENTE`;
-  
-  // Build preview items rows
-  // Read any advisor discounts currently set in the sliders
-  const sliderDiscounts = [];
-  const sliderAdditionalDiscounts = [];
-  document.querySelectorAll('#items-builder-container .item-row-wrapper').forEach(wrapper => {
-    const slider = wrapper.querySelector('.item-discount-slider');
-    sliderDiscounts.push(slider ? (parseFloat(slider.value) || 0) : 0);
-    sliderAdditionalDiscounts.push(getSliderAdditionalDiscount(slider));
-  });
-  
-  const tbody = document.getElementById('preview-table-body');
-  tbody.innerHTML = '';
-  let sumSubtotals = 0;
-  
-  calc.items.forEach((i, itemIndex) => {
-    const listPrice = Number(i.precio_lista || 0);
-    const netPrice = Number(i.precio_neto || 0);
-    const nucleDiscount = Number(i.descuento_nucle_unitario || 0);
-    const additionalDiscount = sliderAdditionalDiscounts[itemIndex] || 0;
-    const finalPrice = Number(i.precio_final != null ? i.precio_final : Math.max(netPrice - additionalDiscount - nucleDiscount, 0));
-    const subtotalFinal = Number(i.subtotal != null ? i.subtotal : (finalPrice * i.cantidad));
-    sumSubtotals += subtotalFinal;
-
-    const advisorDiscount = (Number(i.descuento_asesor_aplicado_mxn || 0) + Number(i.descuento_mensual_mxn || 0)) || (sliderDiscounts[itemIndex] || 0);
-    const formattedDiscount = advisorDiscount > 0
-      ? `-$${advisorDiscount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-      : '-$0.00';
-    const discountStyle = advisorDiscount > 0
-      ? 'color: var(--accent); font-weight: 600;'
-      : 'color: var(--text-light);';
-    
-    tbody.innerHTML += `
-      <tr>
-        <td><strong>${escapeHtml(i.producto_nombre || '')}</strong><br><span style="font-size: 9px; color: var(--text-light);">${escapeHtml(i.tipo_categoria || '')}</span></td>
-        <td style="text-align: center; font-weight: 600;">${i.cantidad}</td>
-        <td style="text-align: right;">$${listPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-        <td style="text-align: right; ${discountStyle}">${formattedDiscount}</td>
-        <td style="text-align: right; font-weight: 600;">$${finalPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-        <td style="text-align: right; font-weight: 700;">$${subtotalFinal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-      </tr>
-    `;
-  });
-  
-  // Volume multiplier stats
-  const volPct = calc.vol_multiplier < 1.00 ? `${Math.round((1 - calc.vol_multiplier) * 100)}%` : 'Sin descuento';
-  document.getElementById('preview-discount-vol').textContent = `${volPct} (${calc.total_discountable_seeds} bolsas)`;
-  
-  // Anticipo apartado
-  const anticipoRow = document.getElementById('preview-row-anticipo');
-  if (calc.anticipo_requerido > 0 && payload.condiciones_pago === 'APARTADO') {
-    anticipoRow.style.display = 'flex';
-    document.getElementById('preview-anticipo-val').textContent = `$${calc.anticipo_requerido.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  } else {
-    anticipoRow.style.display = 'none';
-  }
-
-  const nucleRow = document.getElementById('preview-row-nucle');
-  const nucleDiscountTotal = Number(calc.descuento_nucle_mxn || 0);
-  if (calc.nucle_aplicado && nucleDiscountTotal > 0) {
-    nucleRow.style.display = 'flex';
-    document.getElementById('preview-nucle-val').textContent = `-$${nucleDiscountTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN (${Number(calc.nucle_porcentaje || 0)}%)`;
-  } else {
-    nucleRow.style.display = 'none';
-  }
-  
-  // Total (with advisor discounts applied) - Prioritize authoritative total from server
-  const grandTotalEffective = Number(calc.total_mxn != null ? calc.total_mxn : sumSubtotals);
-  document.getElementById('preview-total-val').textContent = `$${grandTotalEffective.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  
-  // Puntos (3%) y Cupón (1%) — informational benefit for the client
-  document.getElementById('preview-puntos-val').textContent =
-    `$${(grandTotalEffective * 0.03).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  document.getElementById('preview-cupon-val').textContent =
-    `$${(grandTotalEffective * 0.01).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
-  updateMobileQuoteSummary(grandTotalEffective);
-  
-  document.getElementById('preview-notes-content').textContent = payload.notas || 'El precio final calculado incluye los descuentos por volumen y campaña en base a las reglas de la distribuidora. Sujeto a cambios sin previo aviso.';
+  card.style.display = 'block';
+  document.getElementById('qc-contacto').textContent = client.contacto || '-';
+  document.getElementById('qc-telefono').textContent = client.telefono || '-';
+  document.getElementById('qc-ubicacion').textContent = client.ubicacion || '-';
+  document.getElementById('qc-superficie').textContent = client.superficie_text || '-';
 }
 
 // Quote Form Submit Handler
@@ -2989,21 +2949,12 @@ document.getElementById('quotation-form').addEventListener('submit', async (e) =
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to submit quote');
 
-    let attachmentMessage = '';
-    if (payload.condiciones_pago === 'CREDITO' && selectedCreditAttachmentFile) {
-      try {
-        await uploadCreditAttachment(data.id, selectedCreditAttachmentFile);
-        attachmentMessage = ' PDF de crédito adjuntado.';
-      } catch (attachmentError) {
-        attachmentMessage = ` La cotización fue creada, pero el PDF no se adjuntó: ${attachmentError.message}`;
-      }
-    }
-    
     const cameFromSaleVisit = Boolean(activePlanningQuoteContext?.planId);
-    const successMessage = cameFromSaleVisit
-      ? `Cotización ${data.folio} enviada a autorización. La visita quedó registrada como prospecto.`
-      : `Cotización ${data.folio} enviada a autorización.`;
-    alert(`${successMessage}${attachmentMessage}`);
+    const actionMessage = payload.condiciones_pago === 'CONTADO'
+      ? 'Propuesta registrada.'
+      : (payload.condiciones_pago === 'APARTADO' ? 'Solicitud de apartado enviada para autorización.' : 'Solicitud de crédito enviada para autorización.');
+    const visitMessage = cameFromSaleVisit ? ' La visita quedó registrada como prospecto.' : '';
+    alert(`${actionMessage} Folio ${data.folio}.${visitMessage}`);
     
     // Reset Form & Switch view
     document.getElementById('quotation-form').reset();
@@ -3011,9 +2962,7 @@ document.getElementById('quotation-form').addEventListener('submit', async (e) =
     quoteItemsCount = 0;
     activeProspectId = null;
     activePlanningQuoteContext = null;
-    selectedCreditAttachmentFile = null;
-    document.getElementById('quote-credit-pdf-input').value = '';
-    updateCreditAttachmentControl();
+    updateQuoteConditionUI({ recalculate: false });
     addQuoteItemRow();
     switchView('dashboard-view', 'Tablero General');
   } catch (err) {
@@ -3030,43 +2979,6 @@ document.getElementById('btn-save-mobile-draft')?.addEventListener('click', () =
     savedAt: new Date().toISOString()
   }));
   alert('Borrador guardado en este dispositivo.');
-});
-
-// Quote Share & Print triggers
-document.getElementById('btn-print-quote').addEventListener('click', () => {
-  window.print();
-});
-
-document.getElementById('btn-whatsapp-quote').addEventListener('click', () => {
-  const payload = getQuotePayload();
-  if (!payload.client_id) {
-    alert("Por favor selecciona un cliente primero.");
-    return;
-  }
-  
-  const clientName = document.getElementById('preview-client-name').textContent;
-  const totalVal = document.getElementById('preview-total-val').textContent;
-  const ciclo = payload.ciclo_agricola;
-  const condicion = payload.condiciones_pago;
-  
-  const itemsText = Array.from(document.querySelectorAll('#preview-table-body tr')).map(row => {
-    const cols = row.querySelectorAll('td');
-    if (cols.length < 6) return '';
-    const name = cols[0].querySelector('strong').textContent;
-    const qty = cols[1].textContent;
-    const price = cols[4].textContent;
-    return `• ${name} (x${qty}) - Neto: ${price}`;
-  }).filter(t => t !== '').join('\n');
-  
-  const msg = `*AgriSales Pro - Cotización*\n` +
-              `Cliente: *${clientName}*\n` +
-              `Ciclo: *${ciclo}* | Condición: *${condicion}*\n\n` +
-              `*Conceptos:*\n${itemsText}\n\n` +
-              `*Total Cotizado: ${totalVal}*\n\n` +
-              `_Cotización generada digitalmente en AgriSales Pro. Sujeta a cambios._`;
-              
-  const encoded = encodeURIComponent(msg);
-  window.open(`https://wa.me/?text=${encoded}`, '_blank');
 });
 
 // -------------------------------------------------------------
@@ -3189,11 +3101,12 @@ window.addProductDirectlyToBuilder = function(productId) {
 // -------------------------------------------------------------
 // Tab Switching
 document.getElementById('tab-existencias').addEventListener('click', () => toggleAlmacenTab('existencias'));
+document.getElementById('tab-solicitudes').addEventListener('click', () => toggleAlmacenTab('solicitudes'));
 document.getElementById('tab-movimientos').addEventListener('click', () => toggleAlmacenTab('movimientos'));
 document.getElementById('tab-produccion').addEventListener('click', () => toggleAlmacenTab('produccion'));
 
 function toggleAlmacenTab(tabName) {
-  const tabs = ['existencias', 'movimientos', 'produccion'];
+  const tabs = ['existencias', 'solicitudes', 'movimientos', 'produccion'];
   tabs.forEach(t => {
     document.getElementById(`tab-${t}`).classList.remove('active');
     document.getElementById(`panel-${t}`).style.display = 'none';
@@ -3202,8 +3115,102 @@ function toggleAlmacenTab(tabName) {
   document.getElementById(`tab-${tabName}`).classList.add('active');
   document.getElementById(`panel-${tabName}`).style.display = 'block';
   
-  loadAlmacenData();
+  if (tabName === 'solicitudes') {
+    loadWarehouseRequests();
+  } else {
+    loadAlmacenData();
+  }
 }
+
+window.loadWarehouseRequests = async function() {
+  const tbody = document.getElementById('warehouse-requests-tbody');
+  if (!tbody || user?.nivel_rol !== 'Almacen') return;
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-light);">Cargando...</td></tr>';
+  try {
+    const response = await fetch(`${API_URL}/api/almacen/solicitudes`, { headers: getHeaders() });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'No fue posible cargar las solicitudes.');
+    warehouseRequests = Array.isArray(data) ? data : [];
+    if (!warehouseRequests.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-light);">No hay solicitudes pendientes de asignación.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = warehouseRequests.map(request => {
+      const itemSummary = (request.items || []).map(item => `${escapeHtml(item.producto_nombre)} × ${Number(item.cantidad_ordenada || 0)}`).join('<br>');
+      const reservationSummary = (request.reservas || []).map(item => `${escapeHtml(item.tamano)} × ${Number(item.cantidad || 0)}`).join(', ');
+      const reserved = request.almacen_estado === 'RESERVADA';
+      return `<tr>
+        <td><strong>${escapeHtml(request.folio_cotizacion || '-')}</strong></td>
+        <td>${escapeHtml(request.cliente_nombre || '-')}</td>
+        <td>${escapeHtml(normalizedQuoteCondition(request.condiciones_pago))}</td>
+        <td>${itemSummary}${reservationSummary ? `<small style="display:block;color:var(--text-light);margin-top:4px;">Reservado: ${reservationSummary}</small>` : ''}</td>
+        <td><span class="badge ${reserved ? 'badge-success' : 'badge-warning'}">${reserved ? 'Reservada' : 'Pendiente'}</span></td>
+        <td>${reserved ? '<span style="color:var(--text-light);font-size:12px;">Asignación confirmada</span>' : `<button type="button" class="btn btn-primary" style="width:auto;padding:6px 10px;" onclick="openWarehouseAssignment(${request.id})">Asignar tamaños</button>`}</td>
+      </tr>`;
+    }).join('');
+  } catch (error) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);">${escapeHtml(error.message)}</td></tr>`;
+  }
+};
+
+window.openWarehouseAssignment = async function(quoteId) {
+  const request = warehouseRequests.find(item => Number(item.id) === Number(quoteId));
+  if (!request) return;
+  try {
+    const response = await fetch(`${API_URL}/api/almacen/solicitudes/${quoteId}/disponibilidad`, { headers: getHeaders() });
+    const availability = await response.json();
+    if (!response.ok) throw new Error(availability.error || 'No fue posible consultar disponibilidad.');
+    document.getElementById('warehouse-assignment-quote-id').value = quoteId;
+    document.getElementById('warehouse-assignment-title').textContent = `Asignar tamaños · ${request.folio_cotizacion}`;
+    const container = document.getElementById('warehouse-assignment-items');
+    container.innerHTML = (request.items || []).map(item => {
+      const available = availability.find(row => Number(row.cotizacion_detalle_id) === Number(item.id));
+      const sizes = available?.tamanos || [];
+      const controls = sizes.length
+        ? sizes.map(size => `<label style="display:grid;grid-template-columns:minmax(100px,1fr) 130px;gap:10px;align-items:center;margin-top:8px;">
+            <span><strong>${escapeHtml(size.tamano)}</strong> · disponible ${Number(size.disponible).toLocaleString('es-MX')}</span>
+            <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(size.disponible)}" step="1" value="0" data-detail-id="${item.id}" data-size="${escapeHtml(size.tamano)}">
+          </label>`).join('')
+        : '<p style="color:var(--danger);margin:8px 0 0;">Este producto no tiene existencia disponible registrada por tamaño.</p>';
+      return `<fieldset class="card" style="margin-bottom:12px;padding:14px;" data-assignment-detail="${item.id}" data-requested="${Number(item.cantidad_ordenada || 0)}">
+        <legend style="font-weight:700;">${escapeHtml(item.producto_nombre)} · solicitado ${Number(item.cantidad_ordenada || 0)}</legend>
+        ${controls}
+      </fieldset>`;
+    }).join('');
+    openModal('warehouse-assignment-modal');
+  } catch (error) {
+    alert(error.message);
+  }
+};
+
+document.getElementById('warehouse-assignment-form')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    const quoteId = document.getElementById('warehouse-assignment-quote-id').value;
+    const details = [...document.querySelectorAll('[data-assignment-detail]')].map(fieldset => {
+      const detailId = Number(fieldset.dataset.assignmentDetail);
+      const requested = Number(fieldset.dataset.requested);
+      const assignments = [...fieldset.querySelectorAll('.warehouse-size-quantity')]
+        .map(input => ({ tamano: input.dataset.size, cantidad: Number(input.value || 0) }))
+        .filter(item => item.cantidad > 0);
+      const assigned = assignments.reduce((sum, item) => sum + item.cantidad, 0);
+      if (assigned !== requested) throw new Error(`La partida ${detailId} requiere ${requested}; asignaste ${assigned}.`);
+      return { cotizacion_detalle_id: detailId, asignaciones: assignments };
+    });
+    const response = await fetch(`${API_URL}/api/almacen/solicitudes/${quoteId}/asignaciones`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ detalles: details })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'No fue posible reservar los tamaños.');
+    closeModal('warehouse-assignment-modal');
+    await loadWarehouseRequests();
+    alert(data.replay ? 'La solicitud ya tenía una reserva activa.' : 'Tamaños reservados correctamente.');
+  } catch (error) {
+    alert(error.message);
+  }
+});
 
 function updateWarehouseMovementLayout() {
   const layout = document.getElementById('warehouse-movements-layout');
@@ -3383,7 +3390,10 @@ function populateMovementItemProducts(row, selectedProdId = null) {
   const activeCategory = document.getElementById('move-categoria')?.value || 'Todos';
 
   const prods = Array.isArray(allProducts) ? allProducts : [];
-  const filtered = prods.filter(p => p.activo === 1).filter(p => {
+  const eligibleProducts = prods
+    .filter(p => p.activo === 1)
+    .filter(p => user?.nivel_rol === 'Almacen' || (p.tipo_categoria !== 'Híbrido' && p.tipo_categoria !== 'Semilla'));
+  const filtered = eligibleProducts.filter(p => {
     if (activeCategory === 'Semilla') {
       return p.tipo_categoria === 'Híbrido' || p.tipo_categoria === 'Semilla';
     } else if (activeCategory === 'Agroquímicos') {
@@ -3392,7 +3402,7 @@ function populateMovementItemProducts(row, selectedProdId = null) {
     return true;
   });
 
-  const listToRender = filtered.length > 0 ? filtered : prods.filter(p => p.activo === 1);
+  const listToRender = filtered.length > 0 || activeCategory !== 'Todos' ? filtered : eligibleProducts;
   const curVal = selectedProdId || selectProd.value;
   selectProd.innerHTML = '<option value="">-- Selecciona un Producto --</option>' + listToRender.map(p => 
     `<option value="${p.id}">${escapeHtml(p.producto)} (${escapeHtml(p.tipo_categoria)})</option>`
@@ -3414,7 +3424,7 @@ function updateMovementItemTamanos(row) {
   const prodObj = prods.find(p => p.id === prodId);
 
   const isSeed = prodObj && (prodObj.tipo_categoria === 'Híbrido' || prodObj.tipo_categoria === 'Semilla');
-  if (isSeed) {
+  if (isSeed && user?.nivel_rol === 'Almacen') {
     tamanoGroup.style.display = 'block';
     const sizes = typeof getSizesForProduct === 'function' ? getSizesForProduct(prodObj) : [];
     const curVal = selectTamano.value;
@@ -4142,6 +4152,8 @@ async function loadAlmacenData() {
       stockTbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--danger);">Error al cargar las existencias físicas.</td></tr>';
     }
   }
+
+  if (user?.nivel_rol === 'Asesor') return;
 
   // 3. Populate form dropdowns and load movements in background
   try {
@@ -5329,7 +5341,7 @@ async function loadAdminAsesores() {
 async function loadAdminProductos() {
   const tbody = document.getElementById('admin-productos-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-light);">Cargando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-light);">Cargando...</td></tr>';
   
   try {
     const res = await fetch(`${API_URL}/api/productos?include_inactive=1`, { headers: getHeaders() });
@@ -5337,7 +5349,7 @@ async function loadAdminProductos() {
     
     tbody.innerHTML = '';
     if (allAdminProductos.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No hay productos registrados.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No hay productos registrados.</td></tr>';
       return;
     }
     
@@ -5348,13 +5360,10 @@ async function loadAdminProductos() {
       const fixedDisc = p.descuento_fijo_quimicos > 0 ? `$${p.descuento_fijo_quimicos.toFixed(2)}` : '-';
       const scaleText = p.descontar === 1 ? 'Sí' : 'No';
       const scaleBadge = p.descontar === 1 ? 'badge-success' : 'badge-warning';
-      const tamanosStr = p.tamanos ? `<span style="font-size: 11px; font-weight: 600; color: #0284c7; background: #e0f2fe; padding: 2px 6px; border-radius: 4px;">${escapeHtml(p.tamanos)}</span>` : '<span style="color: var(--text-light); font-size: 11px;">-</span>';
-      
       tbody.innerHTML += `
         <tr style="${p.activo === 0 ? 'background-color: #f8fafc; opacity: 0.75;' : ''}">
           <td><strong>${p.producto}</strong></td>
           <td>${p.tipo_categoria}</td>
-          <td>${tamanosStr}</td>
           <td style="text-align: right; font-weight: 600;">$${p.list_price_mxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
           <td style="text-align: right;">${baseUsd}</td>
           <td style="text-align: right; color: var(--danger);">${fixedDisc}</td>
@@ -5374,7 +5383,7 @@ async function loadAdminProductos() {
       `;
     });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--danger);">Error al cargar productos: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--danger);">Error al cargar productos: ${err.message}</td></tr>`;
   }
 }
 
@@ -5519,7 +5528,6 @@ if (document.getElementById('btn-open-producto-modal')) {
     document.getElementById('producto-modal-title').textContent = 'Registrar Nuevo Producto';
     document.getElementById('producto-submit-btn').textContent = 'Registrar Producto';
     document.getElementById('prod-status').value = '1';
-    document.getElementById('prod-sizes').value = '';
     populateProductCategorySelect();
     
     // Show stock field for new entries
@@ -5537,7 +5545,6 @@ window.openEditProductoModal = function(id) {
   document.getElementById('prod-key').value = p.clave || '';
   document.getElementById('prod-name').value = p.producto;
   document.getElementById('prod-description').value = p.descripcion || '';
-  document.getElementById('prod-sizes').value = p.tamanos || '';
   populateProductCategorySelect(p.tipo_categoria);
   document.getElementById('prod-list-price').value = p.list_price_mxn;
   document.getElementById('prod-base-usd').value = p.base_usd;
@@ -5564,7 +5571,6 @@ document.getElementById('add-producto-form').addEventListener('submit', async (e
     producto: document.getElementById('prod-name').value.trim(),
     descripcion: document.getElementById('prod-description').value.trim(),
     tipo_categoria: document.getElementById('prod-category').value,
-    tamanos: document.getElementById('prod-sizes').value.trim(),
     list_price_mxn: Number(document.getElementById('prod-list-price').value),
     base_usd: Number(document.getElementById('prod-base-usd').value) || 0.0,
     descuento_fijo_quimicos: Number(document.getElementById('prod-fixed-discount').value) || 0.0,

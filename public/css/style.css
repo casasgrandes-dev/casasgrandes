@@ -1193,11 +1193,11 @@ tr:hover td {
 }
 
 /* -------------------------------------------------------------
-   QUOTE BUILDER VIEW (Two-column layout)
+   INTERNAL PROPOSAL BUILDER
    ------------------------------------------------------------- */
 .quote-builder-grid {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 35px;
   align-items: start;
 }
@@ -3718,7 +3718,6 @@ tr:hover td {
   }
 
   body.role-asesor.mobile-quote-active .desktop-quote-title,
-  body.role-asesor.mobile-quote-active .quote-payment-field,
   body.role-asesor.mobile-quote-active #client-quick-details,
   body.role-asesor.mobile-quote-active .quote-notes-field,
   body.role-asesor.mobile-quote-active .desktop-items-title,
@@ -3740,7 +3739,8 @@ tr:hover td {
     display: block;
   }
 
-  body.role-asesor.mobile-quote-active .quote-client-field {
+  body.role-asesor.mobile-quote-active .quote-client-field,
+  body.role-asesor.mobile-quote-active .quote-payment-field {
     margin: 0 0 16px;
     padding: 16px;
     border: 1px solid var(--mobile-border);
@@ -3749,7 +3749,8 @@ tr:hover td {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
   }
 
-  body.role-asesor.mobile-quote-active .quote-client-field label {
+  body.role-asesor.mobile-quote-active .quote-client-field label,
+  body.role-asesor.mobile-quote-active .quote-payment-field label {
     margin-bottom: 8px;
     color: var(--mobile-text-secondary);
     font-size: 12px;
@@ -3758,7 +3759,8 @@ tr:hover td {
     letter-spacing: 0.4px;
   }
 
-  body.role-asesor.mobile-quote-active #quote-client {
+  body.role-asesor.mobile-quote-active #quote-client,
+  body.role-asesor.mobile-quote-active #quote-condicion {
     height: 48px;
     border: 1px solid var(--mobile-border);
     border-radius: 12px;
@@ -3833,6 +3835,7 @@ tr:hover td {
     grid-column: 2;
     grid-row: 1;
     margin: 0;
+    padding-right: 36px;
   }
 
   body.role-asesor.mobile-quote-active .item-product-group > label,
@@ -3842,6 +3845,7 @@ tr:hover td {
   }
 
   body.role-asesor.mobile-quote-active .item-product-select {
+    width: 100%;
     height: 32px;
     padding: 0 24px 0 0;
     overflow: hidden;

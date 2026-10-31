@@ -58,6 +58,6 @@ test('TDD-TC-048: cantidades comerciales inválidas fallan antes de escribir', (
   );
   assert.deepEqual(
     normalizeQuoteItems([{ producto_id: '4', cantidad: '2.5', descuento_aplicado: '3' }]),
-    [{ producto_id: 4, cantidad: 2.5, descuento_aplicado: 3 }]
+    [{ producto_id: 4, cantidad: 2.5, descuento_aplicado: 3, precio_propuesto: null }]
   );
 });

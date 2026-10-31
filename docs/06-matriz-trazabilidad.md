@@ -297,3 +297,38 @@
 - Fase Roja: `node --test test/chg024_almacen_ciclos_lotes.test.js`, exit 1.
 - Fase Verde: `node --test test/chg024_almacen_ciclos_lotes.test.js`, exit 0, 4/4 aprobadas.
 - Regresión completa: `npm test`, exit 0, 142/142 pruebas aprobadas (0 fallos).
+
+## Trazabilidad CHG-025
+
+| Objetivo | Requisitos | Decisión / diseño | BDD | TDD | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-054 | ADR-016, SDD-CMP-048 | BDD-SC-097 | TDD-TC-111, TDD-TC-120 | `public/index.html`, `public/js/app.js`, `server.js` | EVD-023 | verified-local |
+| OBJ-022 | PRD-FR-055 | ADR-016, SDD-CMP-048, SDD-CMP-049 | BDD-SC-098, BDD-SC-099 | TDD-TC-112, TDD-TC-113 | `utils/commercialFlow.js`, `server.js` | EVD-023 | verified-local |
+| OBJ-022 | PRD-FR-056 | ADR-016, SDD-CMP-048, SDD-CMP-051 | BDD-SC-100, BDD-SC-101 | TDD-TC-111, TDD-TC-115 | `server.js`, `db.js`, `public/js/app.js` | EVD-023 | verified-local |
+| OBJ-022 | PRD-FR-057 | ADR-016, SDD-CMP-048 | BDD-SC-103 | TDD-TC-111, TDD-TC-120 | `server.js`, `public/js/app.js` | EVD-023 | verified-local |
+| OBJ-022 | PRD-FR-058 | SDD-CMP-049, SDD-SEC-013 | BDD-SC-102 | TDD-TC-114, TDD-TC-120 | `server.js`, `public/js/app.js` | EVD-023 | verified-local |
+| OBJ-022 | PRD-FR-059, PRD-NFR-012 | ADR-003, ADR-016, SDD-CMP-050, SDD-DB-019 | BDD-SC-104, BDD-SC-105, BDD-SC-106 | TDD-TC-116, TDD-TC-117, TDD-TC-118, TDD-TC-119 | `utils/commercialFlow.js`, `server.js`, `db.js` | EVD-023 | implemented-tested-local; PostgreSQL real pendiente |
+
+## EVD-023 — Evidencia local CHG-025
+
+- Fase roja: `node --test test/chg025_internal_proposals_reservations.test.js`, exit 1 por ausencia de `utils/commercialFlow.js`; después 6/7 casos aprobaron y falló el contrato visual aún no implementado.
+- Prueba focalizada final: `node --test test/chg025_internal_proposals_reservations.test.js`, exit 0, 9/9 casos aprobados, incluida redacción HTTP de tamaños para todo rol distinto de Almacén.
+- Compatibilidad de permisos e inventario: ejecución conjunta con `test/almacen_asesor_read_and_bids_pagination.test.js`, exit 0, 12/12 casos aprobados.
+- Regresión completa: `npm test`, exit 0, 154 pruebas descubiertas: 153 aprobadas, 0 fallos y TDD-TC-118 omitida de forma explícita por ausencia de `CHG025_TEST_POSTGRES_URL`.
+- TDD-TC-118 quedó automatizada en `test/chg025_postgres_reservations.test.js`; `npm run test:chg025:postgres` termina con skip controlado sin URL y `.github/workflows/chg025-postgres.yml` provisiona PostgreSQL 16 para su ejecución real.
+- TDD-TC-113/119/120 ejercen rutas HTTP reales: no permiten retirar venta/cobro con reservas activas, reconocen replay de estado sin repetir efectos, redactan `tamano` en Kardex/lotes para roles no Almacén y rechazan filtros o movimientos manuales de semilla por tamaño fuera de Almacén.
+- Sintaxis: `node --check` aprobó `server.js`, `db.js`, `migrate_pg.js` y `public/js/app.js`.
+- Higiene de cambios: `git diff --check`, exit 0.
+- Evaluador de readiness: `evaluate_readiness.py`, exit 0, 5/5 escenarios canónicos aprobados.
+- QA en navegador con servidor local temporal y datos ficticios: Contado, Crédito y Apartado verificados en escritorio; Apartado y selección de condición verificados a 390 x 844; hoja imprimible, resumen, acciones de imprimir/compartir y tamaños ausentes; Crédito muestra únicamente `Precio a cosecha`, oculta descuentos/Nucle y expone el PDF; 0 errores de consola. El arnés temporal fue eliminado.
+- Auditoría Humanio estricta: ejecutada; CHG-025 no introduce IDs nuevos sin definición ni huecos propios, pero el workspace conserva 54 errores históricos (referencias/trazas previas y un falso positivo de secreto dentro de `node_modules/simple-get/README.md`).
+- Pendiente: TDD-TC-118 requiere PostgreSQL aislado para demostrar dos asignaciones concurrentes reales; migración aplicada, despliegue y verificación productiva no fueron ejecutados.
+
+## Readiness CHG-025
+
+- Gate 0, contrato: aprobado; ADR-016 y PRD-FR-054..059 fijan alcance, estados y exclusiones.
+- Gate 1, trazabilidad del incremento: aprobada para CHG-025; la auditoría estricta global sigue inválida por 54 hallazgos históricos ajenos al incremento.
+- Gate 2, implementación local: aprobada por sintaxis y revisión de diff.
+- Gate 3, pruebas definidas: aprobado; TDD-TC-118 ya tiene arnés ejecutable y CI.
+- Gate 4, implementación verificada: `CONDITIONAL`; 153 pruebas aprobaron y la aceptación visual pasó, pero TDD-TC-118 aún no tiene resultado PostgreSQL.
+- Gate 5, producción: `NOT READY`; falta PostgreSQL aislado para TDD-TC-118, ejecutar la migración en un entorno autorizado, ensayar rollback y obtener aprobación operativa.

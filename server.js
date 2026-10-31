@@ -22,7 +22,6 @@ const {
   resolveMonthlyProductPricing,
   validateMonthlyPricingRows
 } = require('./utils/monthlyPricing');
-const { normalizeProductSizes } = require('./utils/productos');
 const { normalizeMovementItems, buildWarehouseMovementsQuery } = require('./utils/almacen');
 const { getActiveStageCodesForDate, isStageActiveOnDate, validateStageReportPayload } = require('./utils/stageReports');
 const { calculateComplianceRate, calculateWinRate, calculateAverageDealValue, classifyActivityStatus, buildPipelineFunnel, resolveDateRange } = require('./utils/seguimientoHelpers');
@@ -36,6 +35,13 @@ const {
 const { validateInitialPassword } = require('./utils/security');
 const { buildSecurityHeaders, parseTrustProxyHops } = require('./utils/httpSecurity');
 const { normalizeQuoteItems } = require('./utils/quoteValidation');
+const {
+  calculateHarvestPrice,
+  getCommercialPolicy,
+  isWarehouseEligible,
+  normalizePaymentCondition,
+  validateSizeAssignments
+} = require('./utils/commercialFlow');
 const { applyNucleDiscount, validateNuclePercentage } = require('./utils/nuclePricing');
 const { createHealthHandlers, requestContextMiddleware } = require('./utils/observability');
 const { createGracefulShutdown } = require('./utils/serverLifecycle');
@@ -95,6 +101,7 @@ const healthHandlers = createHealthHandlers({ checkReadiness: db.checkReadiness 
 app.get('/health/live', healthHandlers.live);
 app.get('/health/ready', healthHandlers.ready);
 app.use('/api/cotizaciones/:id/adjuntos', authenticateToken, express.json({ limit: '12mb' }));
+app.use('/api/documentos-credito', authenticateToken, express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -127,7 +134,14 @@ app.use(
   authenticateToken,
   requireRoles(PLANNING_READ_ROLES)
 );
-app.use('/api/almacen', authenticateToken, requireRoles(INVENTORY_ROLES));
+const requireInventoryRole = requireRoles(INVENTORY_ROLES);
+app.use('/api/almacen', authenticateToken, (req, res, next) => {
+  const isAdvisorTotalsRead = req.user?.nivel_rol === 'Asesor'
+    && req.method === 'GET'
+    && req.path === '/existencias';
+  if (isAdvisorTotalsRead) return next();
+  return requireInventoryRole(req, res, next);
+});
 
 // -------------------------------------------------------------
 // PRODUCTS ENDPOINTS
@@ -264,6 +278,9 @@ app.get('/api/productos', authenticateToken, async (req, res) => {
     }
     query += ' ORDER BY activo DESC, tipo_categoria DESC, producto ASC';
     const rows = await db.all(query, params);
+    if (req.user.nivel_rol !== 'Almacen') {
+      for (const row of rows) delete row.tamanos;
+    }
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -275,12 +292,11 @@ app.post('/api/productos', authenticateToken, async (req, res) => {
   if (req.user.nivel_rol !== 'Administrador') {
     return res.status(403).json({ error: 'Admin privileges required' });
   }
-  const { producto, clave, descripcion, tipo_categoria, list_price_mxn, base_usd, descuento_fijo_quimicos, objetivo_anual, descontar, stock_inicial, tamanos } = req.body;
+  const { producto, clave, descripcion, tipo_categoria, list_price_mxn, base_usd, descuento_fijo_quimicos, objetivo_anual, descontar, stock_inicial } = req.body;
   if (!producto || !tipo_categoria || !Number.isFinite(Number(list_price_mxn)) || Number(list_price_mxn) < 0) {
     return res.status(400).json({ error: 'Missing required product fields' });
   }
   const productCode = normalizeProductCode(clave);
-  const normalizedSizes = normalizeProductSizes(tamanos);
   let client;
   try {
     client = await db.pool.connect();
@@ -310,7 +326,7 @@ app.post('/api/productos', authenticateToken, async (req, res) => {
       Number(descuento_fijo_quimicos) || 0.0,
       Number(objetivo_anual) || 0,
       descontar ? 1 : 0,
-      normalizedSizes
+      null
     ]);
     
     const newProdId = result.rows[0].id;
@@ -344,7 +360,7 @@ app.put('/api/productos/:id', authenticateToken, async (req, res) => {
     return res.status(403).json({ error: 'Admin privileges required' });
   }
   const { id } = req.params;
-  const { producto, clave, descripcion, tipo_categoria, list_price_mxn, base_usd, descuento_fijo_quimicos, objetivo_anual, descontar, activo, tamanos } = req.body;
+  const { producto, clave, descripcion, tipo_categoria, list_price_mxn, base_usd, descuento_fijo_quimicos, objetivo_anual, descontar, activo } = req.body;
   if (!producto || !tipo_categoria || !Number.isFinite(Number(list_price_mxn)) || Number(list_price_mxn) < 0) {
     return res.status(400).json({ error: 'Missing required product fields' });
   }
@@ -366,7 +382,6 @@ app.put('/api/productos/:id', authenticateToken, async (req, res) => {
     }
     const nextProductCode = clave === undefined ? (prod.clave || '') : productCode;
     const nextDescription = descripcion === undefined ? prod.descripcion : (String(descripcion || '').trim() || null);
-    const nextSizes = tamanos === undefined ? (prod.tamanos || null) : normalizeProductSizes(tamanos);
     if (nextProductCode) {
       const duplicateCode = await client.query('SELECT id FROM productos WHERE clave = $1 AND id != $2', [nextProductCode, id]);
       if (duplicateCode.rows[0]) {
@@ -392,7 +407,7 @@ app.put('/api/productos/:id', authenticateToken, async (req, res) => {
       Number(objetivo_anual) || 0,
       descontar ? 1 : 0,
       activeVal,
-      nextSizes,
+      prod.tamanos || null,
       id
     ]);
     if (Number(prod.list_price_mxn) !== Number(list_price_mxn)) {
@@ -778,7 +793,15 @@ app.delete('/api/metas-globales/:id', authenticateToken, async (req, res) => {
 
 app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
   const { cliente_id, items, temporada_id, cuenta_clave_id } = req.body;
-  const nucleApplied = req.body.nucle_aplicado === true;
+  let paymentCondition;
+  let commercialPolicy;
+  try {
+    paymentCondition = normalizePaymentCondition(req.body.condiciones_pago || 'CONTADO');
+    commercialPolicy = getCommercialPolicy(paymentCondition);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  const nucleApplied = commercialPolicy.allowNucle && req.body.nucle_aplicado === true;
   
   if (!cliente_id) {
     return res.status(400).json({ error: 'cliente_id and non-empty items array are required' });
@@ -802,10 +825,13 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
     const keyAccount = await db.get('SELECT * FROM cuentas_clave WHERE id = ?', [ccId]);
     const keyAccountDesc = keyAccount ? keyAccount.descuento_mxn : 0.0;
     
-    const activeSeason = temporada_id ? 
-      await db.get('SELECT * FROM temporadas WHERE id = ?', [temporada_id]) : 
-      await db.get("SELECT * FROM temporadas WHERE actividad = 'Temporada (Precio Lleno)'");
-    if (!activeSeason) return res.status(400).json({ error: 'Temporada no disponible.' });
+    let activeSeason = { id: null, actividad: 'No aplica' };
+    if (paymentCondition === 'CONTADO') {
+      activeSeason = temporada_id
+        ? await db.get('SELECT * FROM temporadas WHERE id = ?', [temporada_id])
+        : await db.get("SELECT * FROM temporadas WHERE actividad = 'Temporada (Precio Lleno)'");
+      if (!activeSeason) return res.status(400).json({ error: 'Temporada no disponible.' });
+    }
       
     // Calculate total quantity of discountable seeds first to get correct volume scale
     const currentMonth = getContractMonth(new Date());
@@ -817,9 +843,12 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
       const prod = await db.get('SELECT * FROM productos WHERE id = ? AND activo = 1', [item.producto_id]);
       if (!prod) return res.status(400).json({ error: `El producto seleccionado ya no está disponible para cotizar.` });
       
-      const monthlyPricing = await resolveMonthlyProductPricing(db, prod, currentMonth);
-      dbItems.push({ item, prod: monthlyPricing.product, monthlyPricing });
-      if (monthlyPricing.product.descontar === 1) {
+      const monthlyPricing = paymentCondition === 'CONTADO'
+        ? await resolveMonthlyProductPricing(db, prod, currentMonth)
+        : null;
+      const pricedProduct = monthlyPricing?.product || prod;
+      dbItems.push({ item, prod: pricedProduct, monthlyPricing });
+      if (paymentCondition === 'CONTADO' && pricedProduct.descontar === 1) {
         totalDiscountableSeeds += item.cantidad;
       }
     }
@@ -830,6 +859,59 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
     let nucleDiscountTotal = 0.0;
     
     for (const { item, prod, monthlyPricing } of dbItems) {
+      if (paymentCondition === 'APARTADO') {
+        calculatedItems.push({
+          producto_id: prod.id,
+          producto_nombre: prod.producto,
+          tipo_categoria: prod.tipo_categoria,
+          cantidad: item.cantidad,
+          precio_lista: 0,
+          precio_temporada: 0,
+          precio_antes_cuenta_clave: 0,
+          precio_neto: 0,
+          precio_catalogo: 0,
+          descuento_mensual_mxn: 0,
+          tope_descuento_total_mxn: 0,
+          descuento_asesor_disponible_mxn: 0,
+          descuento_asesor_aplicado_mxn: 0,
+          descuento_nucle_unitario: 0,
+          nucle_elegible: false,
+          precio_final: 0,
+          descuento_cuenta_clave_mxn: 0,
+          max_discount_mxn: 0,
+          subtotal: 0
+        });
+        continue;
+      }
+
+      if (paymentCondition === 'CREDITO') {
+        const harvestPrice = calculateHarvestPrice(prod.list_price_mxn);
+        const subtotal = roundMoney(harvestPrice * item.cantidad);
+        grandTotal = roundMoney(grandTotal + subtotal);
+        calculatedItems.push({
+          producto_id: prod.id,
+          producto_nombre: prod.producto,
+          tipo_categoria: prod.tipo_categoria,
+          cantidad: item.cantidad,
+          precio_lista: harvestPrice,
+          precio_temporada: harvestPrice,
+          precio_antes_cuenta_clave: harvestPrice,
+          precio_neto: harvestPrice,
+          precio_catalogo: Number(prod.list_price_mxn),
+          descuento_mensual_mxn: 0,
+          tope_descuento_total_mxn: 0,
+          descuento_asesor_disponible_mxn: 0,
+          descuento_asesor_aplicado_mxn: 0,
+          descuento_nucle_unitario: 0,
+          nucle_elegible: false,
+          precio_final: harvestPrice,
+          descuento_cuenta_clave_mxn: 0,
+          max_discount_mxn: 0,
+          subtotal
+        });
+        continue;
+      }
+
       const { netPrice: priceBeforeKeyAccount } = calculateItemPricing(
         prod,
         item.cantidad,
@@ -865,7 +947,6 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
         producto_id: prod.id,
         producto_nombre: prod.producto,
         tipo_categoria: prod.tipo_categoria,
-        tamano: item.tamano ? String(item.tamano).trim() : null,
         cantidad: item.cantidad,
         precio_lista: monthlyPricing.listPrice,
         precio_temporada: getSeasonPrice(prod.list_price_mxn, prod.tipo_categoria, activeSeason),
@@ -898,8 +979,9 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
       nucle_porcentaje: nuclePercentage,
       descuento_nucle_mxn: nucleDiscountTotal,
       total_mxn: grandTotal,
-      // For APARTADO conditions: requires $2,000 pesos deposit per bag of seed
-      anticipo_requerido: totalDiscountableSeeds * 2000.0
+      condiciones_pago: paymentCondition,
+      politica_comercial: commercialPolicy,
+      anticipo_requerido: 0
     });
     
   } catch (err) {
@@ -913,8 +995,16 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
 
 // CREATE QUOTATION / ORDER
 app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
-  const { cliente_id, ciclo_agricola, condiciones_pago, temporada_id, items, financiera, notas, prospecto_id, planificacion_id, origen_etapa } = req.body;
-  const nucleApplied = req.body.nucle_aplicado === true;
+  const { cliente_id, ciclo_agricola, condiciones_pago: condicionesPagoInput, temporada_id, items, financiera, notas, prospecto_id, planificacion_id, origen_etapa } = req.body;
+  let condiciones_pago;
+  let commercialPolicy;
+  try {
+    condiciones_pago = normalizePaymentCondition(condicionesPagoInput);
+    commercialPolicy = getCommercialPolicy(condiciones_pago);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  const nucleApplied = commercialPolicy.allowNucle && req.body.nucle_aplicado === true;
   
   if (!cliente_id || !ciclo_agricola || !condiciones_pago) {
     return res.status(400).json({ error: 'Missing required header or items list' });
@@ -976,10 +1066,13 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     const ccId = client.cuenta_clave_id || 1;
     const keyAccount = await db.get('SELECT * FROM cuentas_clave WHERE id = ?', [ccId]);
     const keyAccountDesc = keyAccount ? keyAccount.descuento_mxn : 0.0;
-    const activeSeason = temporada_id ? 
-      await db.get('SELECT * FROM temporadas WHERE id = ?', [temporada_id]) : 
-      await db.get("SELECT * FROM temporadas WHERE actividad = 'Temporada (Precio Lleno)'");
-    if (!activeSeason) return res.status(400).json({ error: 'Temporada no disponible.' });
+    let activeSeason = { id: null, actividad: 'No aplica' };
+    if (condiciones_pago === 'CONTADO') {
+      activeSeason = temporada_id
+        ? await db.get('SELECT * FROM temporadas WHERE id = ?', [temporada_id])
+        : await db.get("SELECT * FROM temporadas WHERE actividad = 'Temporada (Precio Lleno)'");
+      if (!activeSeason) return res.status(400).json({ error: 'Temporada no disponible.' });
+    }
 
     const currentMonth = getContractMonth(now);
     const nuclePercentage = await resolveNuclePercentage(db, currentMonth, nucleApplied);
@@ -991,9 +1084,12 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     for (const item of quoteItems) {
       const prod = await db.get('SELECT * FROM productos WHERE id = ? AND activo = 1', [item.producto_id]);
       if (!prod) return res.status(400).json({ error: `El producto seleccionado ya no está disponible para cotizar.` });
-      const monthlyPricing = await resolveMonthlyProductPricing(db, prod, currentMonth);
-      if (monthlyPricing.product.descontar === 1) totalDiscountableSeeds += item.cantidad;
-      calculatedItems.push({ item, prod: monthlyPricing.product, monthlyPricing });
+      const monthlyPricing = condiciones_pago === 'CONTADO'
+        ? await resolveMonthlyProductPricing(db, prod, currentMonth)
+        : null;
+      const pricedProduct = monthlyPricing?.product || prod;
+      if (condiciones_pago === 'CONTADO' && pricedProduct.descontar === 1) totalDiscountableSeeds += item.cantidad;
+      calculatedItems.push({ item, prod: pricedProduct, monthlyPricing });
     }
     
     const volMultiplier = getVolumeMultiplier(totalDiscountableSeeds);
@@ -1001,6 +1097,26 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     for (const row of calculatedItems) {
       const prod = row.prod;
       const item = row.item;
+
+      if (condiciones_pago === 'APARTADO') {
+        row.netPrice = 0;
+        row.subtotal = 0;
+        row.listPrice = 0;
+        row.discountApplied = 0;
+        row.nucleDiscount = 0;
+        continue;
+      }
+
+      if (condiciones_pago === 'CREDITO') {
+        const harvestPrice = calculateHarvestPrice(prod.list_price_mxn);
+        row.netPrice = harvestPrice;
+        row.subtotal = roundMoney(harvestPrice * item.cantidad);
+        row.listPrice = harvestPrice;
+        row.discountApplied = 0;
+        row.nucleDiscount = 0;
+        grandTotal = roundMoney(grandTotal + row.subtotal);
+        continue;
+      }
       
       const { netPrice: baseNetPrice } = calculateItemPricing(
         prod,
@@ -1035,7 +1151,7 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       nucleDiscountTotal = roundMoney(nucleDiscountTotal + nucle.totalDiscount);
     }
     
-    const anticipoApartado = condiciones_pago === 'APARTADO' ? totalDiscountableSeeds * 2000.0 : 0.0;
+    const anticipoApartado = 0;
     
     // Status logic: quotations start as 'Pendiente' until authorized by Admin/Coordinator
     const defaultStatus = 'Pendiente';
@@ -1077,8 +1193,8 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       }
 
       const result = await tx.run(`
-        INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn, flujo_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025')
         RETURNING id
       `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
       const cotId = result.id;
@@ -1089,23 +1205,24 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
             cotizacion_id, producto_id, temporada_id, cantidad_ordenada, cantidad_entregada,
             precio_lista_unitario, precio_neto_unitario, subtotal_mxn,
             precio_catalogo_unitario, precio_mensual_unitario, descuento_mensual_unitario,
-            tope_descuento_unitario, descuento_asesor_unitario, descuento_nucle_unitario, contrato_precio_version, tamano
-          ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-014', ?)
+            tope_descuento_unitario, descuento_asesor_unitario, descuento_nucle_unitario,
+            contrato_precio_version, tamano, precio_propuesto_unitario
+          ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025', NULL, ?)
         `, [
           cotId,
           row.item.producto_id,
-          temporada_id || activeSeason.id,
+          condiciones_pago === 'CONTADO' ? (temporada_id || activeSeason.id) : null,
           row.item.cantidad,
           row.listPrice,
           row.netPrice,
           row.subtotal,
-          row.monthlyPricing.catalogPrice,
-          row.monthlyPricing.listPrice,
-          row.monthlyPricing.embeddedDiscountMxn,
-          row.monthlyPricing.totalPromotionCapMxn,
+          condiciones_pago === 'APARTADO' ? 0 : (condiciones_pago === 'CREDITO' ? Number(row.prod.list_price_mxn) : row.monthlyPricing.catalogPrice),
+          condiciones_pago === 'APARTADO' ? 0 : (condiciones_pago === 'CREDITO' ? row.netPrice : row.monthlyPricing.listPrice),
+          condiciones_pago === 'CONTADO' ? row.monthlyPricing.embeddedDiscountMxn : 0,
+          condiciones_pago === 'CONTADO' ? row.monthlyPricing.totalPromotionCapMxn : 0,
           row.discountApplied,
           row.nucleDiscount,
-          row.item.tamano ? String(row.item.tamano).trim() : null
+          condiciones_pago === 'CONTADO' ? row.item.precio_propuesto : null
         ]);
       }
 
@@ -1154,7 +1271,7 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
 });
 
 async function getAttachmentQuoteAccess(quoteId, user) {
-  const quote = await db.get('SELECT id, asesor_id, condiciones_pago FROM cotizaciones WHERE id = ?', [quoteId]);
+  const quote = await db.get('SELECT id, asesor_id, condiciones_pago, flujo_version FROM cotizaciones WHERE id = ?', [quoteId]);
   if (!quote) return { error: 'Cotización no encontrada.', status: 404 };
   if (user.nivel_rol === 'Asesor' && quote.asesor_id !== user.id) {
     return { error: 'No tienes acceso a los anexos de esta cotización.', status: 403 };
@@ -1180,6 +1297,9 @@ app.post('/api/cotizaciones/:id/adjuntos', authenticateToken, async (req, res) =
   try {
     const access = await getAttachmentQuoteAccess(quoteId, req.user);
     if (access.error) return res.status(access.status).json({ error: access.error });
+    if (access.quote.flujo_version === 'CHG-025') {
+      return res.status(410).json({ error: 'CHG-025 utiliza el documento institucional de Crédito; no admite anexos por solicitud.' });
+    }
     if (access.quote.condiciones_pago !== 'CREDITO') {
       return res.status(400).json({ error: 'Solo las cotizaciones a crédito pueden tener un PDF adjunto.' });
     }
@@ -1230,6 +1350,87 @@ app.get('/api/cotizaciones/:id/adjuntos/:adjuntoId/descargar', authenticateToken
   }
 });
 
+function parsePdfPayload(body) {
+  const nombreArchivo = String(body?.nombre_archivo || '').trim();
+  const mimeType = String(body?.mime_type || '').trim().toLowerCase();
+  const contenidoBase64 = String(body?.contenido_base64 || '').replace(/^data:application\/pdf;base64,/, '');
+  if (!nombreArchivo || mimeType !== 'application/pdf' || !contenidoBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(contenidoBase64)) {
+    throw new Error('Selecciona un archivo PDF válido.');
+  }
+  const contenido = Buffer.from(contenidoBase64, 'base64');
+  if (!contenido.length || contenido.length > 8 * 1024 * 1024 || contenido.subarray(0, 4).toString() !== '%PDF') {
+    throw new Error('El documento debe ser un PDF de hasta 8 MB.');
+  }
+  return { nombreArchivo: nombreArchivo.slice(0, 255), mimeType, contenido };
+}
+
+app.post('/api/documentos-credito/activo', authenticateToken, requireAdmin, async (req, res) => {
+  let pdf;
+  try {
+    pdf = parsePdfPayload(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  try {
+    const result = await db.transaction(async tx => {
+      await tx.run('UPDATE documentos_credito SET activo = 0 WHERE activo = 1');
+      return tx.run(`
+        INSERT INTO documentos_credito (nombre_archivo, mime_type, contenido, tamano_bytes, activo, creado_por_id)
+        VALUES (?, ?, ?, ?, 1, ?)
+        RETURNING id
+      `, [pdf.nombreArchivo, pdf.mimeType, pdf.contenido, pdf.contenido.length, req.user.id]);
+    });
+    res.status(201).json({ id: result.id, nombre_archivo: pdf.nombreArchivo, tamano_bytes: pdf.contenido.length });
+  } catch (error) {
+    console.error('No fue posible publicar el documento institucional de crédito:', error.message);
+    res.status(500).json({ error: 'No fue posible publicar el documento institucional de crédito.' });
+  }
+});
+
+app.get(
+  '/api/documentos-credito/activo',
+  authenticateToken,
+  requireRoles('Administrador', 'Coordinador', 'Asesor'),
+  async (req, res) => {
+    try {
+      const document = await db.get(`
+        SELECT id, nombre_archivo, mime_type, tamano_bytes, creado_en
+        FROM documentos_credito
+        WHERE activo = 1
+        ORDER BY id DESC LIMIT 1
+      `);
+      if (!document) return res.status(404).json({ error: 'Aún no existe un documento institucional de crédito.' });
+      res.json(document);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'No fue posible consultar el documento institucional de crédito.' });
+    }
+  }
+);
+
+app.get(
+  '/api/documentos-credito/activo/descargar',
+  authenticateToken,
+  requireRoles('Administrador', 'Coordinador', 'Asesor'),
+  async (req, res) => {
+    try {
+      const document = await db.get(`
+        SELECT nombre_archivo, mime_type, contenido
+        FROM documentos_credito
+        WHERE activo = 1
+        ORDER BY id DESC LIMIT 1
+      `);
+      if (!document) return res.status(404).json({ error: 'Aún no existe un documento institucional de crédito.' });
+      res.type(document.mime_type);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(document.nombre_archivo)}"`);
+      res.send(document.contenido);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'No fue posible descargar el documento institucional de crédito.' });
+    }
+  }
+);
+
 // FETCH QUOTATIONS
 app.get('/api/cotizaciones', authenticateToken, async (req, res) => {
   try {
@@ -1257,12 +1458,302 @@ app.get('/api/cotizaciones', authenticateToken, async (req, res) => {
         JOIN productos p ON d.producto_id = p.id
         WHERE d.cotizacion_id = ?
       `, [q.id]);
+      if (req.user.nivel_rol !== 'Almacen') {
+        for (const item of q.items) delete item.tamano;
+      }
     }
     
     res.json(quotes);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch quotations' });
+  }
+});
+
+app.put('/api/cotizaciones/:id/decision', authenticateToken, requireAdminOrCoordinador, async (req, res) => {
+  const decision = String(req.body?.decision || '').trim().toUpperCase();
+  if (!['AUTORIZAR', 'RECHAZAR'].includes(decision)) {
+    return res.status(400).json({ error: 'La decisión debe ser AUTORIZAR o RECHAZAR.' });
+  }
+  try {
+    const outcome = await db.transaction(async tx => {
+      const quote = await tx.get('SELECT * FROM cotizaciones WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!quote) return { status: 404, body: { error: 'Solicitud no encontrada.' } };
+      let condition;
+      try {
+        condition = normalizePaymentCondition(quote.condiciones_pago);
+      } catch {
+        return { status: 409, body: { error: 'La solicitud usa una condición de pago heredada no compatible.' } };
+      }
+      if (quote.flujo_version !== 'CHG-025' || !['CREDITO', 'APARTADO'].includes(condition)) {
+        return { status: 400, body: { error: 'Esta solicitud no requiere una decisión de Crédito/Apartado.' } };
+      }
+      const targetStatus = decision === 'AUTORIZAR' ? 'Autorizada' : 'Rechazada';
+      if (quote.estatus === targetStatus) {
+        return { status: 200, body: { success: true, estatus: targetStatus, replay: true } };
+      }
+      if (!['Pendiente', 'Pendiente Autorización', 'Borrador'].includes(quote.estatus)) {
+        return { status: 409, body: { error: 'La solicitud ya no está pendiente de autorización.' } };
+      }
+      await tx.run(`
+        UPDATE cotizaciones
+        SET estatus = ?, autorizado_por_id = ?, decision_por_id = ?, decision_en = CURRENT_TIMESTAMP,
+            motivo_rechazo = ?, almacen_estado = ?
+        WHERE id = ?
+      `, [
+        targetStatus,
+        decision === 'AUTORIZAR' ? req.user.id : null,
+        req.user.id,
+        decision === 'RECHAZAR' ? String(req.body?.motivo || '').trim() || null : null,
+        decision === 'AUTORIZAR' ? 'PENDIENTE' : null,
+        quote.id
+      ]);
+      return { status: 200, body: { success: true, estatus: targetStatus, almacen_estado: decision === 'AUTORIZAR' ? 'PENDIENTE' : null } };
+    });
+    res.status(outcome.status).json(outcome.body);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No fue posible registrar la decisión.' });
+  }
+});
+
+app.put('/api/cotizaciones/:id/confirmaciones-contado', authenticateToken, requireAdminOrCoordinador, async (req, res) => {
+  try {
+    const outcome = await db.transaction(async tx => {
+      const quote = await tx.get('SELECT * FROM cotizaciones WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!quote) return { status: 404, body: { error: 'Propuesta no encontrada.' } };
+      let condition;
+      try {
+        condition = normalizePaymentCondition(quote.condiciones_pago);
+      } catch {
+        return { status: 409, body: { error: 'La propuesta usa una condición heredada no compatible.' } };
+      }
+      if (quote.flujo_version !== 'CHG-025' || condition !== 'CONTADO') {
+        return { status: 400, body: { error: 'La doble confirmación aplica únicamente a propuestas Contado CHG-025.' } };
+      }
+      const saleConfirmed = req.body?.venta_confirmada === undefined
+        ? Number(quote.venta_confirmada) === 1
+        : req.body.venta_confirmada === true;
+      const paymentConfirmed = req.body?.cobro_confirmado === undefined
+        ? Number(quote.cobro_confirmado) === 1
+        : req.body.cobro_confirmado === true;
+      const eligible = isWarehouseEligible({
+        condition,
+        saleConfirmed,
+        paymentConfirmed
+      });
+      if (['CANCELADA', 'ENTREGADA'].includes(quote.almacen_estado)) {
+        return { status: 409, body: { error: 'La solicitud ya cerró su ciclo de Almacén; usa la transición de cancelación o reversión correspondiente.' } };
+      }
+      if (!eligible && quote.almacen_estado === 'RESERVADA') {
+        return { status: 409, body: { error: 'No puedes retirar venta o cobro mientras existan tamaños reservados; cancela la solicitud para liberar la reserva.' } };
+      }
+      const warehouseState = eligible ? (quote.almacen_estado || 'PENDIENTE') : null;
+      await tx.run(`
+        UPDATE cotizaciones
+        SET venta_confirmada = ?, cobro_confirmado = ?,
+            venta_confirmada_en = CASE WHEN ? = 1 THEN COALESCE(venta_confirmada_en, CURRENT_TIMESTAMP) ELSE NULL END,
+            cobro_confirmado_en = CASE WHEN ? = 1 THEN COALESCE(cobro_confirmado_en, CURRENT_TIMESTAMP) ELSE NULL END,
+            almacen_estado = ?, estatus = ?
+        WHERE id = ?
+      `, [
+        saleConfirmed ? 1 : 0,
+        paymentConfirmed ? 1 : 0,
+        saleConfirmed ? 1 : 0,
+        paymentConfirmed ? 1 : 0,
+        warehouseState,
+        eligible ? 'Vendido' : 'Pendiente',
+        quote.id
+      ]);
+      return {
+        status: 200,
+        body: {
+          success: true,
+          venta_confirmada: saleConfirmed,
+          cobro_confirmado: paymentConfirmed,
+          almacen_estado: warehouseState
+        }
+      };
+    });
+    res.status(outcome.status).json(outcome.body);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No fue posible actualizar venta y cobro.' });
+  }
+});
+
+app.get('/api/almacen/solicitudes', authenticateToken, requireRoles('Almacen'), async (req, res) => {
+  try {
+    const rows = await db.all(`
+      SELECT q.id, q.folio_cotizacion, q.condiciones_pago, q.almacen_estado,
+             q.fecha_creacion, c.nombre AS cliente_nombre
+      FROM cotizaciones q
+      JOIN clientes c ON c.id = q.cliente_id
+      WHERE q.flujo_version = 'CHG-025'
+        AND q.almacen_estado IN ('PENDIENTE', 'RESERVADA')
+      ORDER BY q.fecha_creacion ASC, q.id ASC
+    `);
+    for (const row of rows) {
+      row.items = await db.all(`
+        SELECT d.id, d.producto_id, d.cantidad_ordenada, p.producto AS producto_nombre
+        FROM cotizacion_detalles d
+        JOIN productos p ON p.id = d.producto_id
+        WHERE d.cotizacion_id = ?
+        ORDER BY d.id ASC
+      `, [row.id]);
+      row.reservas = await db.all(`
+        SELECT cotizacion_detalle_id, producto_id, tamano, cantidad, estado
+        FROM cotizacion_reservas
+        WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+        ORDER BY id ASC
+      `, [row.id]);
+    }
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No fue posible consultar las solicitudes de Almacén.' });
+  }
+});
+
+app.get('/api/almacen/solicitudes/:id/disponibilidad', authenticateToken, requireRoles('Almacen'), async (req, res) => {
+  try {
+    const details = await db.all('SELECT id, producto_id FROM cotizacion_detalles WHERE cotizacion_id = ? ORDER BY id', [req.params.id]);
+    if (!details.length) return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    const availability = [];
+    for (const detail of details) {
+      const rows = await db.all(`
+        SELECT m.tamano,
+               SUM(COALESCE(m.cantidad_entrante, 0) - COALESCE(m.cantidad_saliente, 0)) AS fisico,
+               COALESCE((
+                 SELECT SUM(r.cantidad) FROM cotizacion_reservas r
+                 WHERE r.producto_id = m.producto_id
+                   AND UPPER(r.tamano) = UPPER(m.tamano)
+                   AND r.estado = 'ACTIVA'
+               ), 0) AS reservado
+        FROM almacen_movimientos m
+        WHERE m.producto_id = ? AND m.tamano IS NOT NULL AND BTRIM(m.tamano) <> ''
+        GROUP BY m.producto_id, m.tamano
+        ORDER BY m.tamano
+      `, [detail.producto_id]);
+      availability.push({
+        cotizacion_detalle_id: detail.id,
+        producto_id: detail.producto_id,
+        tamanos: rows.map(row => ({
+          tamano: row.tamano,
+          fisico: Number(row.fisico || 0),
+          reservado: Number(row.reservado || 0),
+          disponible: Number(row.fisico || 0) - Number(row.reservado || 0)
+        }))
+      });
+    }
+    res.json(availability);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No fue posible consultar disponibilidad por tamaño.' });
+  }
+});
+
+app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, requireRoles('Almacen'), async (req, res) => {
+  if (!Array.isArray(req.body?.detalles) || req.body.detalles.length === 0) {
+    return res.status(400).json({ error: 'Debes asignar todas las partidas de la solicitud.' });
+  }
+  try {
+    const outcome = await db.transaction(async tx => {
+      const quote = await tx.get('SELECT * FROM cotizaciones WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!quote || quote.flujo_version !== 'CHG-025' || !['PENDIENTE', 'RESERVADA'].includes(quote.almacen_estado)) {
+        return { status: 404, body: { error: 'Solicitud de Almacén no disponible.' } };
+      }
+      const details = await tx.all(`
+        SELECT * FROM cotizacion_detalles WHERE cotizacion_id = ? ORDER BY id FOR UPDATE
+      `, [quote.id]);
+      if (details.length !== req.body.detalles.length) {
+        return { status: 400, body: { error: 'Debes asignar exactamente todas las partidas.' } };
+      }
+      const productIds = [...new Set(details.map(item => Number(item.producto_id)))].sort((a, b) => a - b);
+      if (productIds.length) {
+        await tx.all('SELECT id FROM productos WHERE id = ANY(?::int[]) ORDER BY id FOR UPDATE', [productIds]);
+      }
+
+      const normalizedAssignments = [];
+      for (const detail of details) {
+        const requested = req.body.detalles.find(item => Number(item.cotizacion_detalle_id) === Number(detail.id));
+        if (!requested) return { status: 400, body: { error: `Falta asignar la partida ${detail.id}.` } };
+        let assignments;
+        try {
+          assignments = validateSizeAssignments({
+            detailId: detail.id,
+            productId: detail.producto_id,
+            requestedQuantity: detail.cantidad_ordenada,
+            assignments: requested.asignaciones
+          });
+        } catch (error) {
+          return { status: 400, body: { error: error.message } };
+        }
+        normalizedAssignments.push(...assignments);
+      }
+
+      const existing = await tx.all(`
+        SELECT cotizacion_detalle_id, producto_id, tamano, cantidad
+        FROM cotizacion_reservas
+        WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+        ORDER BY cotizacion_detalle_id, UPPER(tamano)
+      `, [quote.id]);
+      if (existing.length > 0) {
+        const canonical = rows => rows
+          .map(row => ({
+            detailId: Number(row.detailId ?? row.cotizacion_detalle_id),
+            productId: Number(row.productId ?? row.producto_id),
+            size: String(row.size ?? row.tamano).trim().toUpperCase(),
+            quantity: Number(row.quantity ?? row.cantidad)
+          }))
+          .sort((a, b) => a.detailId - b.detailId || a.size.localeCompare(b.size));
+        if (JSON.stringify(canonical(existing)) !== JSON.stringify(canonical(normalizedAssignments))) {
+          return { status: 409, body: { error: 'La solicitud ya tiene una reserva activa con otra distribución de tamaños.' } };
+        }
+        return { status: 200, body: { success: true, replay: true, reservas: existing } };
+      }
+
+      const requestedBySize = new Map();
+      for (const assignment of normalizedAssignments) {
+        const key = `${assignment.productId}:${assignment.size.toUpperCase()}`;
+        const current = requestedBySize.get(key) || { ...assignment, quantity: 0 };
+        current.quantity += assignment.quantity;
+        requestedBySize.set(key, current);
+      }
+      for (const assignment of requestedBySize.values()) {
+        const physical = await tx.get(`
+          SELECT COALESCE(SUM(cantidad_entrante - cantidad_saliente), 0) AS cantidad
+          FROM almacen_movimientos
+          WHERE producto_id = ? AND UPPER(COALESCE(tamano, '')) = UPPER(?)
+        `, [assignment.productId, assignment.size]);
+        const reserved = await tx.get(`
+          SELECT COALESCE(SUM(cantidad), 0) AS cantidad
+          FROM cotizacion_reservas
+          WHERE producto_id = ? AND UPPER(tamano) = UPPER(?) AND estado = 'ACTIVA'
+        `, [assignment.productId, assignment.size]);
+        const available = Number(physical?.cantidad || 0) - Number(reserved?.cantidad || 0);
+        if (available < assignment.quantity) {
+          return {
+            status: 409,
+            body: { error: `Disponibilidad insuficiente para ${assignment.size}. Disponible: ${available}.` }
+          };
+        }
+      }
+
+      for (const assignment of normalizedAssignments) {
+        await tx.run(`
+          INSERT INTO cotizacion_reservas
+            (cotizacion_id, cotizacion_detalle_id, producto_id, tamano, cantidad, estado, reservado_por_id)
+          VALUES (?, ?, ?, ?, ?, 'ACTIVA', ?)
+        `, [quote.id, assignment.detailId, assignment.productId, assignment.size, assignment.quantity, req.user.id]);
+      }
+      await tx.run("UPDATE cotizaciones SET almacen_estado = 'RESERVADA' WHERE id = ?", [quote.id]);
+      return { status: 201, body: { success: true, reservas: normalizedAssignments } };
+    });
+    res.status(outcome.status).json(outcome.body);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No fue posible confirmar las reservas.' });
   }
 });
 
@@ -1279,11 +1770,16 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
     if (req.user.nivel_rol === 'Asesor' && q.asesor_id !== req.user.id) {
       return { status: 403, body: { error: 'Unauthorized' } };
     }
-    if (req.user.nivel_rol !== 'Administrador') {
-      return { status: 403, body: { error: 'Solo un administrador puede autorizar o mover una cotización en el canal de ventas.' } };
+    const isChg025 = q.flujo_version === 'CHG-025';
+    const isSalesManager = ['Administrador', 'Coordinador'].includes(req.user.nivel_rol);
+    if (!isSalesManager || (!isChg025 && req.user.nivel_rol !== 'Administrador')) {
+      return { status: 403, body: { error: 'Solo Administrador o Coordinador pueden mover solicitudes CHG-025.' } };
+    }
+    if (q.estatus === estatus) {
+      return { status: 200, body: { message: 'La solicitud ya se encuentra en ese estado.', replay: true } };
     }
 
-    const allowedTransitions = {
+    const legacyTransitions = {
       'Borrador': ['Autorizada'],
       'Pendiente': ['Autorizada'],
       'Pendiente Autorización': ['Autorizada'],
@@ -1291,6 +1787,13 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
       'Vendido': ['Autorizada', 'Entregado'],
       'Entregado': ['Vendido']
     };
+    const chg025Transitions = {
+      'Pendiente': ['Cancelada'],
+      'Autorizada': ['Entregado', 'Cancelada'],
+      'Vendido': ['Entregado', 'Cancelada'],
+      'Entregado': ['Vendido', 'Autorizada', 'Cancelada']
+    };
+    const allowedTransitions = isChg025 ? chg025Transitions : legacyTransitions;
     if (!allowedTransitions[q.estatus]?.includes(estatus)) {
       return { status: 400, body: { error: 'El movimiento solicitado no es válido para el estatus actual de la cotización.' } };
     }
@@ -1309,7 +1812,87 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
       await tx.all('SELECT id FROM productos WHERE id = ANY(?::int[]) ORDER BY id FOR UPDATE', [productIds]);
     }
     
-    if (q.estatus !== 'Entregado' && estatus === 'Entregado') {
+    if (isChg025 && q.estatus !== 'Entregado' && estatus === 'Entregado') {
+      if (q.almacen_estado !== 'RESERVADA') {
+        return { status: 409, body: { error: 'La solicitud debe estar completamente reservada antes de entregar.' } };
+      }
+      const reservations = await tx.all(`
+        SELECT * FROM cotizacion_reservas
+        WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+        ORDER BY producto_id, UPPER(tamano), id
+        FOR UPDATE
+      `, [id]);
+      if (!reservations.length) {
+        return { status: 409, body: { error: 'No existen reservas activas para entregar.' } };
+      }
+      for (const reservation of reservations) {
+        const physicalBySize = await tx.get(`
+          SELECT COALESCE(SUM(cantidad_entrante - cantidad_saliente), 0) AS cantidad
+          FROM almacen_movimientos
+          WHERE producto_id = ? AND UPPER(COALESCE(tamano, '')) = UPPER(?)
+        `, [reservation.producto_id, reservation.tamano]);
+        if (Number(physicalBySize?.cantidad || 0) < Number(reservation.cantidad)) {
+          return { status: 409, body: { error: `Inventario físico insuficiente para entregar el tamaño ${reservation.tamano}.` } };
+        }
+      }
+      for (const reservation of reservations) {
+        const lastMove = await tx.get(
+          'SELECT existencias_resultantes FROM almacen_movimientos WHERE producto_id = ? ORDER BY id DESC LIMIT 1',
+          [reservation.producto_id]
+        );
+        const newStock = Number(lastMove?.existencias_resultantes || 0) - Number(reservation.cantidad);
+        await tx.run(`
+          INSERT INTO almacen_movimientos
+            (fecha_movimiento, tipo_movimiento, producto_id, cantidad_entrante, cantidad_saliente,
+             existencias_resultantes, cotizacion_id, asesor_id, referencia_factura, notas, categoria, tamano)
+          VALUES (?, 'Salida por Pedido Reservado', ?, 0, ?, ?, ?, ?, ?, ?, 'Semilla', ?)
+        `, [now, reservation.producto_id, reservation.cantidad, newStock, id, req.user.id, q.folio_cotizacion, 'Salida de reserva CHG-025', reservation.tamano]);
+      }
+      await tx.run(`
+        UPDATE cotizacion_reservas
+        SET estado = 'CONSUMIDA', actualizado_en = CURRENT_TIMESTAMP
+        WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+      `, [id]);
+      await tx.run('UPDATE cotizacion_detalles SET cantidad_entregada = cantidad_ordenada WHERE cotizacion_id = ?', [id]);
+      await tx.run("UPDATE cotizaciones SET almacen_estado = 'ENTREGADA' WHERE id = ?", [id]);
+      await calcularComisionCotizacion(id, tx);
+    } else if (isChg025 && q.estatus === 'Entregado' && estatus !== 'Entregado') {
+      const reservations = await tx.all(`
+        SELECT * FROM cotizacion_reservas
+        WHERE cotizacion_id = ? AND estado = 'CONSUMIDA'
+        ORDER BY producto_id, UPPER(tamano), id
+        FOR UPDATE
+      `, [id]);
+      for (const reservation of reservations) {
+        const lastMove = await tx.get(
+          'SELECT existencias_resultantes FROM almacen_movimientos WHERE producto_id = ? ORDER BY id DESC LIMIT 1',
+          [reservation.producto_id]
+        );
+        const newStock = Number(lastMove?.existencias_resultantes || 0) + Number(reservation.cantidad);
+        await tx.run(`
+          INSERT INTO almacen_movimientos
+            (fecha_movimiento, tipo_movimiento, producto_id, cantidad_entrante, cantidad_saliente,
+             existencias_resultantes, cotizacion_id, asesor_id, referencia_factura, notas, categoria, tamano)
+          VALUES (?, 'Reversión de Pedido Reservado', ?, ?, 0, ?, ?, ?, ?, ?, 'Semilla', ?)
+        `, [now, reservation.producto_id, reservation.cantidad, newStock, id, req.user.id, q.folio_cotizacion, `Reversión CHG-025 a ${estatus}`, reservation.tamano]);
+      }
+      const reservationState = estatus === 'Cancelada' ? 'LIBERADA' : 'ACTIVA';
+      await tx.run(`
+        UPDATE cotizacion_reservas
+        SET estado = ?, actualizado_en = CURRENT_TIMESTAMP
+        WHERE cotizacion_id = ? AND estado = 'CONSUMIDA'
+      `, [reservationState, id]);
+      await tx.run('UPDATE cotizacion_detalles SET cantidad_entregada = 0 WHERE cotizacion_id = ?', [id]);
+      await tx.run('UPDATE cotizaciones SET almacen_estado = ? WHERE id = ?', [estatus === 'Cancelada' ? 'CANCELADA' : 'RESERVADA', id]);
+      await cancelarComisionCotizacion(id, tx);
+    } else if (isChg025 && estatus === 'Cancelada') {
+      await tx.run(`
+        UPDATE cotizacion_reservas
+        SET estado = 'LIBERADA', actualizado_en = CURRENT_TIMESTAMP
+        WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+      `, [id]);
+      await tx.run("UPDATE cotizaciones SET almacen_estado = 'CANCELADA' WHERE id = ?", [id]);
+    } else if (!isChg025 && q.estatus !== 'Entregado' && estatus === 'Entregado') {
       // Inventory leaves the warehouse only when the quotation is delivered.
       if (!stockDeducted) {
         const requiredByProduct = new Map();
@@ -1346,7 +1929,7 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
       }
       await tx.run('UPDATE cotizacion_detalles SET cantidad_entregada = cantidad_ordenada WHERE cotizacion_id = ?', [id]);
       await calcularComisionCotizacion(id, tx);
-    } else if (q.estatus === 'Entregado' && estatus !== 'Entregado') {
+    } else if (!isChg025 && q.estatus === 'Entregado' && estatus !== 'Entregado') {
       // Returning a delivered quotation to a prior stage returns its items to stock.
       if (stockDeducted) {
         for (const item of items) {
@@ -1389,6 +1972,10 @@ app.delete('/api/cotizaciones/:id', authenticateToken, async (req, res) => {
     if (!q) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Quotation not found' });
+    }
+    if (q.flujo_version === 'CHG-025' && !['Borrador', 'Pendiente', 'Pendiente Autorización', 'Rechazada', 'Cancelada'].includes(q.estatus)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cancela o revierte la solicitud CHG-025 antes de eliminarla.' });
     }
     
     // Authorization check
@@ -1462,6 +2049,9 @@ app.put('/api/cotizaciones/:id', authenticateToken, async (req, res) => {
     const outcome = await db.transaction(async tx => {
       const q = await tx.get('SELECT * FROM cotizaciones WHERE id = ? FOR UPDATE', [id]);
       if (!q) return { status: 404, body: { error: 'Quotation not found' } };
+      if (q.flujo_version === 'CHG-025') {
+        return { status: 409, body: { error: 'Las propuestas CHG-025 enviadas no se editan; cancela o elimina la pendiente y registra una nueva.' } };
+      }
       if (req.user.nivel_rol === 'Asesor' && q.asesor_id !== req.user.id) {
         return { status: 403, body: { error: 'Unauthorized to edit this quote' } };
       }
@@ -1691,16 +2281,18 @@ app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
       ORDER BY p.producto ASC
     `);
 
-    // Obtener desglose de lotes activos con saldo > 0 por producto
-    const lotsRows = await db.all(`
-      SELECT producto_id, lote, tamano,
-             (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) AS stock
-      FROM almacen_movimientos
-      WHERE lote IS NOT NULL AND TRIM(lote) <> ''
-      GROUP BY producto_id, lote, tamano
-      HAVING (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) > 0
-      ORDER BY lote ASC
-    `);
+    // Los tamaños y lotes son información operativa exclusiva del rol Almacén.
+    const lotsRows = req.user.nivel_rol === 'Almacen'
+      ? await db.all(`
+          SELECT producto_id, lote, tamano,
+                 (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) AS stock
+          FROM almacen_movimientos
+          WHERE lote IS NOT NULL AND TRIM(lote) <> ''
+          GROUP BY producto_id, lote, tamano
+          HAVING (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) > 0
+          ORDER BY lote ASC
+        `)
+      : [];
 
     const lotsByProduct = new Map();
     for (const row of lotsRows) {
@@ -1717,7 +2309,9 @@ app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
 
     for (const item of existencias) {
       item.existencias = Math.round((Number(item.existencias) || 0) * 1000) / 1000;
-      item.lotes = lotsByProduct.get(Number(item.id)) || [];
+      if (req.user.nivel_rol === 'Almacen') {
+        item.lotes = lotsByProduct.get(Number(item.id)) || [];
+      }
     }
 
     res.json(existencias);
@@ -1753,6 +2347,9 @@ app.get('/api/almacen/movimientos', authenticateToken, async (req, res) => {
   try {
     const { sql, params } = buildWarehouseMovementsQuery(req.query);
     const rows = await db.all(sql, params);
+    if (req.user.nivel_rol !== 'Almacen') {
+      for (const row of rows) delete row.tamano;
+    }
     res.json(rows);
   } catch (err) {
     console.error('Error fetching warehouse movements:', err);
@@ -1773,14 +2370,18 @@ app.get('/api/almacen/movimientos/tipos', authenticateToken, async (req, res) =>
 app.get('/api/almacen/lotes-disponibles', authenticateToken, async (req, res) => {
   const prodId = Number(req.query.producto_id);
   const tamano = req.query.tamano ? String(req.query.tamano).trim() : null;
+  const canSeeSizes = req.user.nivel_rol === 'Almacen';
 
   if (!prodId) {
     return res.status(400).json({ error: 'El producto_id es requerido' });
   }
+  if (tamano && !canSeeSizes) {
+    return res.status(403).json({ error: 'Solo Almacén puede consultar lotes por tamaño.' });
+  }
 
   try {
     let sql = `
-      SELECT lote, tamano, (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) AS existencias
+      SELECT lote${canSeeSizes ? ', tamano' : ''}, (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) AS existencias
       FROM almacen_movimientos
       WHERE producto_id = ? AND lote IS NOT NULL AND TRIM(lote) <> ''
     `;
@@ -1792,17 +2393,20 @@ app.get('/api/almacen/lotes-disponibles', authenticateToken, async (req, res) =>
     }
 
     sql += `
-      GROUP BY lote, tamano
+      GROUP BY lote${canSeeSizes ? ', tamano' : ''}
       HAVING (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) > 0
       ORDER BY lote ASC
     `;
 
     const rows = await db.all(sql, params);
-    const result = rows.map(r => ({
-      lote: r.lote,
-      tamano: r.tamano,
-      existencias: Math.round((Number(r.existencias) || 0) * 1000) / 1000
-    }));
+    const result = rows.map(r => {
+      const item = {
+        lote: r.lote,
+        existencias: Math.round((Number(r.existencias) || 0) * 1000) / 1000
+      };
+      if (canSeeSizes) item.tamano = r.tamano;
+      return item;
+    });
     res.json(result);
   } catch (err) {
     console.error('Error fetching available lots:', err);
@@ -1816,6 +2420,9 @@ app.get('/api/almacen/lotes-historial', authenticateToken, async (req, res) => {
 
   if (!prodId) {
     return res.status(400).json({ error: 'El producto_id es requerido' });
+  }
+  if (tamano && req.user.nivel_rol !== 'Almacen') {
+    return res.status(403).json({ error: 'Solo Almacén puede consultar el historial por tamaño.' });
   }
 
   try {
@@ -1934,6 +2541,7 @@ app.post('/api/almacen/movimientos', authenticateToken, async (req, res) => {
     // 1. Validaciones previas de todas las partidas
     const productRunningStock = new Map();
     const lotRunningStock = new Map();
+    const sizeAvailableStock = new Map();
     const lockedProducts = new Map();
     const productIdsToLock = [...new Set(items.map(item => Number(item.producto_id)))]
       .filter(productId => Number.isInteger(productId) && productId > 0)
@@ -1963,8 +2571,40 @@ app.post('/api/almacen/movimientos', authenticateToken, async (req, res) => {
       }
 
       const isSeed = item.categoria === 'Semilla' || prod.tipo_categoria === 'Híbrido' || prod.tipo_categoria === 'Semilla';
+      if (isSeed && req.user.nivel_rol !== 'Almacen') {
+        const error = new Error('Solo Almacén puede registrar movimientos manuales de semilla por tamaño.');
+        error.statusCode = 403;
+        throw error;
+      }
       if (isSeed && !item.tamano) {
         throw new Error(`El tamaño es obligatorio para el producto "${prod.producto}"${indexLabel}`);
+      }
+
+      if (isSalida && isSeed) {
+        const sizeKey = `${item.producto_id}__${(item.tamano || '').toUpperCase()}`;
+        if (!sizeAvailableStock.has(sizeKey)) {
+          const physicalSize = await tx.get(`
+            SELECT COALESCE(SUM(cantidad_entrante - cantidad_saliente), 0) AS cantidad
+            FROM almacen_movimientos
+            WHERE producto_id = ? AND UPPER(COALESCE(tamano, '')) = UPPER(?)
+          `, [item.producto_id, item.tamano || '']);
+          const reservedSize = await tx.get(`
+            SELECT COALESCE(SUM(cantidad), 0) AS cantidad
+            FROM cotizacion_reservas
+            WHERE producto_id = ? AND UPPER(tamano) = UPPER(?) AND estado = 'ACTIVA'
+          `, [item.producto_id, item.tamano || '']);
+          sizeAvailableStock.set(
+            sizeKey,
+            Number(physicalSize?.cantidad || 0) - Number(reservedSize?.cantidad || 0)
+          );
+        }
+        const currentSizeAvailable = sizeAvailableStock.get(sizeKey);
+        if (currentSizeAvailable < item.cantidad) {
+          throw new Error(
+            `Disponibilidad no reservada insuficiente para el tamaño "${item.tamano || 'Sin tamaño'}"${indexLabel}. Disponibles: ${currentSizeAvailable.toLocaleString('es-MX', { minimumFractionDigits: 3 })}`
+          );
+        }
+        sizeAvailableStock.set(sizeKey, currentSizeAvailable - item.cantidad);
       }
 
       if (isSalida) {
@@ -2109,8 +2749,10 @@ app.post('/api/almacen/movimientos', authenticateToken, async (req, res) => {
       message: msg
     });
   } catch (err) {
-    console.error('Error registrando movimiento de almacén:', err);
-    res.status(400).json({ error: err.message || 'No se pudo registrar el movimiento de almacén' });
+    if (!err.statusCode || err.statusCode >= 500) {
+      console.error('Error registrando movimiento de almacén:', err);
+    }
+    res.status(err.statusCode || 400).json({ error: err.message || 'No se pudo registrar el movimiento de almacén' });
   }
 });
 
