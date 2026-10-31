@@ -227,6 +227,8 @@ test('TDD-TC-029: superficies comerciales e inventario declaran política centra
   ]) {
     assert.match(source, new RegExp(`['"]${prefix.replaceAll('/', '\\/')}['"]`));
   }
-  assert.match(source, /app\.use\('\/api\/almacen', authenticateToken, requireRoles\(INVENTORY_ROLES\)\)/);
+  assert.match(source, /const requireInventoryRole = requireRoles\(INVENTORY_ROLES\)/);
+  assert.match(source, /req\.method === 'GET'[\s\S]*req\.path === '\/existencias'/);
+  assert.match(source, /return requireInventoryRole\(req, res, next\)/);
   assert.match(frontendSource, /['"]Session revoked['"]/);
 });

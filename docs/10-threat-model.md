@@ -28,6 +28,8 @@ Modelo vigente para CHG-001 y CHG-002. Activos principales: sesiones, PII de agr
 | THR-011 | DoS / suplantación | Fuerza bruta, JSON grande o IP falsificada agota autenticación | CHG-006: límites por IP/cuenta, parsers escalonados y proxy explícito | store en memoria no coordina múltiples réplicas |
 | THR-012 | Manipulación | Fallo o carrera deja cotización, prospecto o inventario parcial | CHG-007: transacciones y locks comerciales | requiere prueba concurrente con PostgreSQL real |
 | THR-013 | Repudio / disponibilidad | Solicitudes no correlacionables, logs inyectados o terminación abrupta ocultan fallos | CHG-008: IDs validados, logs mínimos, sondas y cierre ordenado | retención central y orquestador real pendientes |
+| THR-014 | Manipulación / concurrencia | Dos autorizaciones o asignaciones comprometen el mismo tamaño o duplican una salida | CHG-025: locks, ledger de reservas, transiciones e idempotencia | prueba concurrente requiere PostgreSQL aislado |
+| THR-015 | Divulgación / elevación | Asesor consulta tamaños o reemplaza el documento institucional de Crédito | CHG-025: endpoints separados y roles explícitos | prueba visual y revisión de rutas antes de producción |
 
 ## Casos de abuso obligatorios
 

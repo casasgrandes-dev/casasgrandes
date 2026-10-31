@@ -433,3 +433,50 @@ Express sirve el frontend y las APIs; PostgreSQL conserva el estado. El incremen
       - Si `user.nivel_rol === 'Observador'`, establece el título `Detalle de Visita (Solo Lectura)`, deshabilita todos los campos (`input.disabled = true`) y oculta los botones `#plan-submit-btn` y `#btn-convert-to-prospect`.
     - `switchView(viewId, title)`:
       - Si `user.nivel_rol === 'Observador'` e intenta conmutar a una vista restringida, redirige a `planeacion-view`.
+
+## Diseño CHG-025
+
+### SDD-CMP-048 — Contratos de propuesta por condición
+
+- Cubre: PRD-FR-054..057, ADR-016.
+- `utils/commercialFlow.js` normaliza condiciones, calcula cosecha con aritmética monetaria, determina campos permitidos y evalúa elegibilidad para Almacén.
+- `POST /api/cotizaciones/calcular` y `POST /api/cotizaciones` seleccionan el contrato en servidor; payloads manipulados no habilitan beneficios prohibidos.
+- El frontend renderiza un solo formulario condicionado, sin hoja imprimible, tamaño ni acciones de compartir.
+
+### SDD-CMP-049 — Máquina de autorización comercial
+
+- Cubre: PRD-FR-055, PRD-FR-058.
+- Crédito/Apartado: `Pendiente -> Autorizada | Rechazada` por Administrador/Coordinador.
+- Contado: banderas independientes `venta_confirmada` y `cobro_confirmado`; la segunda confirmación crea la solicitud de Almacén mediante operación idempotente.
+- Filtro de condición se aplica en servidor o sobre la colección ya autorizada sin ampliar alcance de cartera.
+
+### SDD-CMP-050 — Servicio transaccional de reservas
+
+- Cubre: PRD-FR-059, PRD-NFR-012, ADR-003, ADR-016.
+- Bloquea cotización, detalles y productos en orden estable.
+- Valida disponibilidad por `producto_id + tamano` como entradas menos salidas menos reservas activas.
+- Confirma todas las asignaciones o ninguna; entrega consume reservas y registra salidas con tamaño; cancelación libera; reversión repone y registra actor/fecha.
+
+### SDD-CMP-051 — Documento institucional de Crédito
+
+- Cubre: PRD-FR-056, PRD-NFR-012.
+- Tabla de versión única activa con metadatos, `BYTEA`, autor y fecha.
+- Administrador reemplaza; roles comerciales autorizados obtienen metadatos y descarga autenticada.
+- Se preserva la tabla de anexos históricos, pero nuevas solicitudes no cargan PDFs por cotización.
+
+### SDD-DB-019 — Extensión aditiva CHG-025
+
+- `cotizaciones`: `flujo_version`, `venta_confirmada`, `cobro_confirmado`, `almacen_estado`, fechas y actores de decisión.
+- `cotizacion_detalles`: `precio_propuesto_unitario` nullable.
+- `cotizacion_reservas`: detalle, producto, tamaño, cantidad, estado, actores y fechas; índice parcial para reservas activas.
+- `documentos_credito`: versiones institucionales con una fila activa.
+- Migraciones aditivas e idempotentes; ningún histórico se recalcula.
+
+### SDD-SEC-013 — Matriz CHG-025
+
+- Asesor: crea y lee propuestas propias; no ve tamaños ni decide autorización.
+- Administrador/Coordinador: autoriza/rechaza y confirma venta/cobro; no asigna tamaños.
+- Almacén: consulta solicitudes/tamaños y asigna; no autoriza condiciones comerciales.
+- `GET /api/productos` y las respuestas de propuestas eliminan `tamanos`/`tamano` para todo rol distinto de Almacén; Administración conserva el catálogo comercial sin controles de calibre.
+- Las lecturas heredadas de existencias, Kardex y lotes también omiten `tamano` para cualquier rol distinto de Almacén; los filtros por tamaño y los movimientos manuales de semilla se rechazan fuera de ese rol.
+- Descarga del PDF requiere sesión y rol comercial explícito; carga requiere Administrador.

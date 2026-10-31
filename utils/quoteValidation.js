@@ -1,5 +1,7 @@
 'use strict';
 
+const { normalizeProposedPrice } = require('./commercialFlow');
+
 function normalizeQuoteItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new TypeError('Quote requires at least one item');
@@ -24,7 +26,8 @@ function normalizeQuoteItems(items) {
     return {
       producto_id: productId,
       cantidad: quantity,
-      descuento_aplicado: appliedDiscount
+      descuento_aplicado: appliedDiscount,
+      precio_propuesto: normalizeProposedPrice(item.precio_propuesto)
     };
   });
 }

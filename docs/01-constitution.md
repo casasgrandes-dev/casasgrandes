@@ -78,6 +78,14 @@ El proceso expondrá salud sin divulgar secretos, correlacionará solicitudes si
 
 Todo precio y descuento cotizado se resolverá en el servidor mediante un único contrato monetario versionado: el precio mensual será la base operativa, la reducción frente al catálogo consumirá el tope promocional y ninguna entrada cliente podrá ampliar el saldo autorizado.
 
+### PROJECT-PR-019
+
+Cada condición comercial tendrá un contrato explícito y versionado. Contado conserva el contrato mensual; Crédito usa el precio lleno vigente incrementado en ocho por ciento, sin descuentos ni beneficios; Apartado no produce importes monetarios. La interfaz nunca será autoridad para elegir el contrato.
+
+### PROJECT-PR-020
+
+Las asignaciones de tamaño crean reservas que reducen la disponibilidad para comprometer sin modificar la existencia física. Solo la entrega convierte reservas en salidas; cancelaciones y reversiones liberan o reponen sus efectos de forma atómica, auditable e idempotente.
+
 ## Fuentes canónicas
 
 | Fuente | Autoridad | Responsable |

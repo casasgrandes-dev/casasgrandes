@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:chg025:postgres": "node --test test/chg025_postgres_reservations.test.js"
   },
   "keywords": [],
   "author": "",

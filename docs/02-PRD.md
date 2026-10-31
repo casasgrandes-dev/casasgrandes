@@ -514,3 +514,42 @@ Criterio de aceptación:
   - La consulta a `/api/almacen/existencias` entrega la estructura de existencias totales y el desglose de lotes activos por producto.
   - En el DOM de `#stock-tbody`, para productos con existencias se renderiza el desglose visual de lotes y sus respectivas cantidades.
 
+## Incremento CHG-025 — Propuestas internas, autorización y reservas por tamaño
+
+### OBJ-022 — Coordinar compromisos comerciales sin sobreasignar semilla
+
+Permitir que Asesores, Ventas y Almacén trabajen sobre una solicitud interna común, con contratos distintos por condición de pago, autorización humana y reservas que protejan la disponibilidad física.
+
+### PRD-FR-054 — Cotizador interno condicionado y sin tamaño
+
+El Cotizador ofrece `CONTADO`, `CREDITO` y `APARTADO`, elimina la hoja imprimible, el resumen, compartir por WhatsApp y la selección de tamaño. El Asesor conserva la consulta de existencias generales, pero no recibe tamaños ni desgloses por calibre.
+
+Criterios de aceptación:
+- cambiar la condición adapta campos y acción sin recargar;
+- ninguna condición muestra o envía `tamano` desde el Cotizador;
+- no existen acciones de imprimir o compartir la propuesta;
+- el servidor rechaza campos prohibidos para Crédito/Apartado aunque se manipule el navegador.
+
+### PRD-FR-055 — Propuesta de Contado y doble confirmación
+
+Contado conserva precio mensual, descuentos autorizados y Nucle. Cada partida permite un `precio_propuesto_unitario` opcional, no negativo e informativo; no altera total, comisión ni snapshot autorizado. La acción se denomina `Guardar y registrar propuesta`. La solicitud llega a Almacén solo cuando Administrador o Coordinador han confirmado tanto venta como cobro, en cualquier orden y sin duplicar la solicitud.
+
+### PRD-FR-056 — Crédito a precio de cosecha y documento institucional
+
+Crédito muestra por partida un precio de cosecha fijo durante toda la temporada, calculado en servidor como `precio_lleno_vigente * 1.08`. No admite precio mensual visible, tabulador, descuento, Nucle ni cupones. La acción se denomina `Guardar y enviar para autorización`. Un único PDF institucional activo de solicitud y requisitos puede ser reemplazado por Administrador y consultado o impreso por Asesor, Administrador y Coordinador.
+
+### PRD-FR-057 — Apartado sin importes ni anticipo
+
+Apartado conserva Productor, productos, cantidades, notas y observaciones; total y precios se persisten en cero y no aplica descuentos, Nucle, cupones ni anticipo por bolsa. La acción se denomina `Solicitar apartado`. La regla histórica de `$2,000` no aplica a nuevas solicitudes `CHG-025`.
+
+### PRD-FR-058 — Autorización y filtro del Canal de Ventas
+
+El Canal de Ventas permite filtrar por `CONTADO`, `CREDITO` y `APARTADO`. Solo Administrador y Coordinador autorizan o rechazan Crédito/Apartado. Rechazar no crea solicitud de Almacén ni reserva; autorizar crea exactamente una solicitud pendiente. Un Asesor puede consultar únicamente sus propias solicitudes y no puede decidirlas.
+
+### PRD-FR-059 — Asignación mult tamaño y ciclo de reserva
+
+Solo el rol Almacén consulta tamaños disponibles y confirma asignaciones. Una partida puede dividirse entre varios tamaños del mismo producto y la suma debe igualar la cantidad solicitada. La confirmación bloquea los productos, valida `físico - reservas activas`, crea reservas sin alterar `almacen_movimientos` y falla completa si cualquier tamaño es insuficiente. Entrega consume las reservas y crea salidas; cancelación previa las libera; reversión posterior repone inventario sin duplicar efectos.
+
+### PRD-NFR-012 — Seguridad, concurrencia y auditoría de compromisos
+
+Autorizaciones, doble confirmación, asignación, entrega, cancelación y reversión se ejecutan en transacciones idempotentes con autorización en servidor, locks estables, actor y fecha auditables. PDF máximo 8 MiB, exclusivamente `application/pdf`, sin nombres o contenido en logs. Las cotizaciones históricas conservan el flujo legado.

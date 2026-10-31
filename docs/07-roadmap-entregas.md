@@ -139,3 +139,20 @@
 | 2 | Probar rango, categorías, HTTP y administración | TDD-TC-079..085 | completed |
 | 3 | Implementar cálculo, snapshot e interfaz | SDD-CMP-033 | completed-local |
 | 4 | Ejecutar regresión y desplegar | EVD-013 | in-progress |
+
+## Incremento 25 — CHG-025
+
+- Objetivo: OBJ-022
+- Requisitos: PRD-FR-054..059, PRD-NFR-012
+- Decisión: ADR-016
+- Escenarios: BDD-SC-097..106
+- Pruebas: TDD-TC-111..120
+- Gate de salida local: Gate 4 `CONDITIONAL`; Gate 5 requiere PostgreSQL aislado, migración/rollback y aprobación operativa.
+
+| Orden | Tarea | IDs | Evidencia esperada | Estado |
+|---|---|---|---|---|
+| 1 | Formalizar contratos, permisos, reserva y reversión | ADR-016, PRD-FR-054..059 | Especificación aprobada y trazable | completed |
+| 2 | Crear pruebas rojas de contratos, roles, reservas y UI | TDD-TC-111..120 | Fallos que demuestran ausencia del comportamiento | completed |
+| 3 | Añadir migración aditiva y servicios transaccionales | SDD-DB-019, SDD-CMP-048..051 | Pruebas focalizadas verdes | completed-local |
+| 4 | Adaptar Cotizador, Canal de Ventas y bandeja de Almacén | PRD-FR-054..059 | Contrato visual y rutas verdes | completed-local |
+| 5 | Ejecutar regresión, trazabilidad y simulación de fallos | EVD-023 | Gate 4 local documentado; TDD-TC-118 automatizado en CI | partial-awaiting-postgresql-execution |

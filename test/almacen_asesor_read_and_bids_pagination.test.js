@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Test 1: TDD-TC-098: INVENTORY_ROLES strictly excludes Asesor and rejects with 403 Forbidden
-test('TDD-TC-098: INVENTORY_ROLES strictly excludes Asesor and rejects with 403 Forbidden', () => {
+// CHG-025 acota TDD-TC-098: permite solo la lectura totalizada y conserva el perímetro operativo.
+test('TDD-TC-098/120: Asesor conserva lectura totalizada y no entra al perímetro operativo', () => {
   const { INVENTORY_ROLES, ROLES, requireRoles } = require('../middleware/authorization');
 
   // Verify Asesor is NOT in INVENTORY_ROLES
@@ -34,17 +34,14 @@ test('TDD-TC-098: INVENTORY_ROLES strictly excludes Asesor and rejects with 403 
   authMiddleware({ user: { id: 2, nivel_rol: 'Almacen' } }, res, () => { warehouseNext = true; });
   assert.equal(warehouseNext, true, 'Almacen must pass through requireRoles(INVENTORY_ROLES)');
 
-  // Check server.js protects /api/almacen with INVENTORY_ROLES
+  // El servidor declara una excepción exacta para GET /existencias y delega el resto al guard operativo.
   const serverContent = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
-  assert.match(
-    serverContent,
-    /app\.use\(\s*['"]\/api\/almacen['"]\s*,\s*authenticateToken\s*,\s*requireRoles\(INVENTORY_ROLES\)\)/,
-    'server.js must protect /api/almacen with requireRoles(INVENTORY_ROLES)'
-  );
+  assert.match(serverContent, /req\.method === 'GET'[\s\S]*req\.path === '\/existencias'/);
+  assert.match(serverContent, /return requireInventoryRole\(req, res, next\)/);
 });
 
-// Test 2: TDD-TC-099: public/index.html & public/js/app.js hide Almacen nav item for Asesor and redirect switchView
-test('TDD-TC-099: public/index.html & public/js/app.js hide Almacen for Asesor and protect switchView', () => {
+// CHG-025 acota TDD-TC-099: muestra existencias generales y oculta toda operación/tamaño.
+test('TDD-TC-099/120: interfaz de Asesor abre solo existencias generales', () => {
   const indexHtml = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
   const appJs = fs.readFileSync(path.join(__dirname, '../public/js/app.js'), 'utf8');
 
@@ -69,12 +66,10 @@ test('TDD-TC-099: public/index.html & public/js/app.js hide Almacen for Asesor a
     'app.js must query .inventory-access-only to toggle visibility'
   );
 
-  // app.js prevents Asesor from navigating to almacen-view in switchView
-  assert.match(
-    appJs,
-    /viewId\s*===\s*['"]almacen-view['"][\s\S]*?user\.nivel_rol\s*===\s*['"]Asesor['"]/,
-    'app.js must check user role and block switchView for almacen-view if Asesor'
-  );
+  assert.match(appJs, /canAccessInventory = \[[^\]]*'Asesor'/);
+  assert.match(appJs, /advisorReadOnlyInventory/);
+  assert.match(appJs, /user\.nivel_rol === 'Asesor'\) \{\s*toggleAlmacenTab\('existencias'\)/);
+  assert.match(appJs, /if \(user\?\.nivel_rol === 'Asesor'\) return;/);
 });
 
 // Test 2: Bids optimization & server filtering

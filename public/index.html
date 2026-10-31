@@ -587,6 +587,12 @@
               <select id="kanban-advisor-filter" class="form-input admin-or-coordinator-only" style="flex: 1; display: none;">
                 <option value="ALL">Todos los Asesores</option>
               </select>
+              <select id="kanban-payment-filter" class="form-input" style="flex: 1;">
+                <option value="ALL">Todas las condiciones</option>
+                <option value="CONTADO">Contado</option>
+                <option value="CREDITO">Crédito</option>
+                <option value="APARTADO">Apartado</option>
+              </select>
             </div>
           </div>
 
@@ -660,7 +666,7 @@
             <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>
           </button>
           <div>
-            <h2>Nuevo pedido</h2>
+            <h2>Nueva propuesta</h2>
             <span class="mobile-quote-status"><i></i>Borrador</span>
           </div>
           <button id="mobile-quote-more" type="button" class="mobile-quote-header-button" aria-label="Más opciones">
@@ -670,7 +676,7 @@
         <div class="quote-builder-grid">
           <!-- Left side: Interactive form -->
           <div class="card quote-form-column">
-            <h2 class="desktop-quote-title" style="margin-bottom: 20px;">Generar Nueva Cotización</h2>
+            <h2 class="desktop-quote-title" style="margin-bottom: 20px;">Registrar nueva propuesta</h2>
             <form id="quotation-form">
               <div class="input-grid">
                 <div class="form-group quote-client-field">
@@ -689,6 +695,7 @@
                   <select id="quote-condicion" class="form-input" required>
                     <option value="CONTADO">Contado</option>
                     <option value="CREDITO">Crédito (cosecha)</option>
+                    <option value="APARTADO">Apartado</option>
                   </select>
                 </div>
               </div>
@@ -701,7 +708,7 @@
                 <input type="hidden" id="quote-financiera" value="">
               </div>
 
-              <label for="quote-nucle" style="display: inline-flex; align-items: center; gap: 9px; margin-top: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-weight: 700;">
+              <label id="quote-nucle-control" for="quote-nucle" style="display: inline-flex; align-items: center; gap: 9px; margin-top: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-weight: 700;">
                 <input type="checkbox" id="quote-nucle" style="width: 18px; height: 18px; accent-color: var(--success);">
                 <span>Nucle <small id="quote-nucle-percentage" style="font-weight: 500; color: var(--text-light);"></small></span>
               </label>
@@ -737,180 +744,21 @@
                 <textarea id="quote-notas" class="form-input" rows="2" placeholder="Notas internas o aclaraciones del pedido..."></textarea>
               </div>
 
-              <div class="mobile-quote-summary">
-                <div class="mobile-quote-total-row">
-                  <span>Total</span>
-                  <strong id="mobile-quote-total">$0.00 MXN</strong>
-                </div>
-                <div class="mobile-quote-benefit">
-                  <span class="material-symbols-rounded" aria-hidden="true">stars</span>
-                  <div>
-                    <span>Puntos</span>
-                    <strong id="mobile-quote-points">$0.00</strong>
-                    <small>3% de esta compra</small>
-                  </div>
-                </div>
-                <div class="mobile-quote-benefit coupon">
-                  <span class="material-symbols-rounded" aria-hidden="true">confirmation_number</span>
-                  <div>
-                    <span>Cupón</span>
-                    <strong id="mobile-quote-coupon">$0.00</strong>
-                    <small>1% para próxima compra</small>
-                  </div>
-                </div>
-              </div>
-
               <div class="quote-submit-actions" style="margin-top: 25px; border-top: 1px solid var(--border); padding-top: 20px; display: flex; gap: 12px;">
                 <button type="submit" class="btn btn-primary quote-submit-button" style="height: 50px; flex: 1;">
-                  <span class="desktop-submit-label">💾 Guardar y Registrar Cotización</span>
-                  <span class="mobile-submit-label"><span class="material-symbols-rounded" aria-hidden="true">send</span> Enviar a autorización</span>
+                  <span class="desktop-submit-label">💾 Guardar y registrar propuesta</span>
+                  <span class="mobile-submit-label"><span class="material-symbols-rounded" aria-hidden="true">send</span> Guardar propuesta</span>
                 </button>
-                <input id="quote-credit-pdf-input" type="file" accept="application/pdf,.pdf" hidden>
-                <button id="btn-attach-credit-pdf" type="button" class="btn btn-secondary" style="display:none; height:50px; width:auto; white-space:nowrap;">📎 Anexar PDF</button>
+                <button id="btn-view-credit-pdf" type="button" class="btn btn-secondary" style="display:none; height:50px; width:auto; white-space:nowrap;">📄 Solicitud y requisitos</button>
+                <input id="credit-document-admin-input" class="admin-only" type="file" accept="application/pdf,.pdf" hidden>
+                <button id="btn-upload-credit-document" type="button" class="btn btn-secondary admin-only" style="display:none; height:50px; width:auto; white-space:nowrap;">⬆️ Actualizar requisitos</button>
               </div>
               <p class="mobile-quote-review-hint">La cotización pasará a revisión</p>
               <button id="btn-save-mobile-draft" type="button" class="mobile-save-draft">Guardar borrador</button>
-              <div id="quote-credit-pdf-status" style="display:none; margin-top:8px; color:var(--text-light); font-size:12px;"></div>
+              <div id="quote-credit-document-status" style="display:none; margin-top:8px; color:var(--text-light); font-size:12px;"></div>
             </form>
           </div>
 
-          <!-- Right side: Virtual printable sheet preview -->
-          <div class="quote-preview-column">
-            <div class="quote-sheet-wrapper">
-              <div class="quote-sheet-preview" id="quote-document-sheet">
-                <!-- Membrete y logo -->
-                <div class="quote-sheet-header">
-                  <div class="quote-sheet-brand">
-                    <h1>AgriSales <span>Pro</span></h1>
-                    <p>AGROSERVICIOS Y DISTRIBUCIÓN</p>
-                  </div>
-                  <div class="quote-sheet-meta">
-                    <div class="quote-sheet-title">COTIZACIÓN</div>
-                    <div class="quote-sheet-folio" id="preview-folio">CG-2026-PENDIENTE</div>
-                    <div class="quote-sheet-date" id="preview-date">FECHA: --/--/----</div>
-                  </div>
-                </div>
-
-                <!-- Partes involucradas -->
-                <div class="quote-sheet-parties">
-                  <div class="quote-party-col">
-                    <span class="party-label">DISTRIBUIDO POR:</span>
-                    <strong>AgriSales Pro S.A. de C.V.</strong><br>
-                    Sucursal Casas Grandes<br>
-                    Chihuahua, México<br>
-                    contacto@agrisalespro.mx
-                  </div>
-                  <div class="quote-party-col">
-                    <span class="party-label">COTIZADO A:</span>
-                    <strong id="preview-client-name">Seleccione un cliente</strong><br>
-                    <span id="preview-client-contact">-</span><br>
-                    <span id="preview-client-phone">-</span><br>
-                    <span id="preview-client-location">-</span>
-                  </div>
-                </div>
-
-                <!-- Detalles de la operacion -->
-                <div class="quote-sheet-details">
-                  <div class="detail-cell">
-                    <strong>Ciclo Agrícola</strong>
-                    <span id="preview-ciclo-text">-</span>
-                  </div>
-                  <div class="detail-cell">
-                    <strong>Condiciones de Pago</strong>
-                    <span id="preview-condiciones-text">-</span>
-                  </div>
-                  <div class="detail-cell">
-                    <strong>Campaña / Ajuste</strong>
-                    <span id="preview-temporada-text">-</span>
-                  </div>
-                  <div class="detail-cell" id="preview-cell-financiera" style="display: none;">
-                    <strong>Financiera</strong>
-                    <span id="preview-financiera-text">-</span>
-                  </div>
-                </div>
-
-                <!-- Tabla de partidas -->
-                <div class="table-responsive-wrapper">
-                  <table class="quote-sheet-table">
-                    <thead>
-                      <tr>
-                        <th>Producto</th>
-                        <th style="text-align: center; width: 60px;">Cant</th>
-                        <th style="text-align: right; width: 90px;">P. Lista</th>
-                        <th style="text-align: right; width: 90px;">Dcto Neto</th>
-                        <th style="text-align: right; width: 100px;">P. Neto</th>
-                        <th style="text-align: right; width: 110px;">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody id="preview-table-body">
-                      <tr>
-                        <td colspan="6" style="text-align: center; color: var(--text-light); padding: 30px;">
-                          No hay productos agregados a la cotización.
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <!-- Firmas y Totales -->
-                <div class="quote-sheet-footer">
-                  <div class="quote-sheet-notes-section">
-                    <strong>Notas y Cláusulas:</strong>
-                    <p id="preview-notes-content">El precio final calculado incluye los descuentos por volumen y campaña en base a las reglas de la distribuidora. Sujeto a cambios sin previo aviso.</p>
-                  </div>
-                  
-                  <div class="quote-sheet-totals-section">
-                    <div class="totals-row">
-                      <span>Descuento Volumen:</span>
-                      <span id="preview-discount-vol">-</span>
-                    </div>
-                    <div class="totals-row" id="preview-row-anticipo" style="display: none; color: var(--accent);">
-                      <span>Anticipo Apartado ($2k/bolsa):</span>
-                      <strong id="preview-anticipo-val">$0.00</strong>
-                    </div>
-                    <div class="totals-row" id="preview-row-nucle" style="display: none; color: var(--success);">
-                      <span>Descuento Nucle:</span>
-                      <strong id="preview-nucle-val">-$0.00 MXN</strong>
-                    </div>
-                    <div class="totals-row total">
-                      <span>Costo Total:</span>
-                      <strong id="preview-total-val">$0.00 MXN</strong>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Loyalty/Benefits Banner across the page -->
-                <div class="loyalty-benefits-banner" style="margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 15px; display: flex; flex-wrap: wrap; gap: 16px;">
-                  <div style="flex: 1 1 200px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.05), rgba(245, 158, 11, 0.08)); border: 1px solid rgba(245, 158, 11, 0.15); border-radius: var(--radius); padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-                      <span style="font-size: 20px; flex-shrink: 0;">⭐</span>
-                      <div style="min-width: 0; word-break: break-word;">
-                        <div style="font-size: 11px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.5px;">Puntos Acumulables</div>
-                        <div style="font-size: 9px; color: var(--text-light);">3% del valor de la cotización</div>
-                      </div>
-                    </div>
-                    <strong id="preview-puntos-val" style="font-size: 14px; color: #b45309; font-weight: 800; white-space: nowrap;">$0.00 MXN</strong>
-                  </div>
-                  <div style="flex: 1 1 200px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(16, 185, 129, 0.08)); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: var(--radius); padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-                      <span style="font-size: 20px; flex-shrink: 0;">🎟️</span>
-                      <div style="min-width: 0; word-break: break-word;">
-                        <div style="font-size: 11px; font-weight: 700; color: #065f46; text-transform: uppercase; letter-spacing: 0.5px;">Cupón de Descuento</div>
-                        <div style="font-size: 9px; color: var(--text-light);">1% del valor de la cotización</div>
-                      </div>
-                    </div>
-                    <strong id="preview-cupon-val" style="font-size: 14px; color: #065f46; font-weight: 800; white-space: nowrap;">$0.00 MXN</strong>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Acciones rápidas de exportacion -->
-              <div class="quote-actions-row">
-                <button id="btn-print-quote" type="button" class="btn btn-secondary">🖨️ Guardar PDF / Imprimir</button>
-                <button id="btn-whatsapp-quote" type="button" class="btn btn-secondary" style="border-color: #22c55e; color: #16a34a;">💬 Compartir WhatsApp</button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1047,6 +895,7 @@
         <div style="display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button id="tab-existencias" class="btn btn-secondary active" style="width: auto; padding: 8px 18px; font-size: 14px;">📦 Existencias Físicas</button>
+            <button id="tab-solicitudes" class="btn btn-secondary" style="display:none; width: auto; padding: 8px 18px; font-size: 14px;">🧾 Solicitudes por asignar</button>
             <button id="tab-movimientos" class="btn btn-secondary" style="width: auto; padding: 8px 18px; font-size: 14px;">📋 Historial de Movimientos</button>
             <button id="tab-produccion" class="btn btn-secondary" style="width: auto; padding: 8px 18px; font-size: 14px;">⚡ Producción UAN-32</button>
           </div>
@@ -1086,7 +935,28 @@
           </div>
         </div>
 
-        <!-- 2. Movements history & Register form -->
+        <!-- 2. Requests awaiting a seed-size reservation -->
+        <div id="panel-solicitudes" class="almacen-panel" style="display: none;">
+          <div class="card">
+            <div class="flex-header" style="margin-bottom: 16px; align-items: center; justify-content: space-between; gap: 10px;">
+              <div>
+                <h3 style="margin: 0 0 4px;">Solicitudes para asignación</h3>
+                <p style="margin: 0; color: var(--text-light); font-size: 13px;">Al asignar tamaños se reserva disponibilidad; la existencia física se descuenta hasta la entrega.</p>
+              </div>
+              <button type="button" class="btn btn-secondary" style="width:auto;" onclick="loadWarehouseRequests()">🔄 Actualizar</button>
+            </div>
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Folio</th><th>Productor</th><th>Condición</th><th>Productos</th><th>Estado</th><th>Acción</th></tr></thead>
+                <tbody id="warehouse-requests-tbody">
+                  <tr><td colspan="6" style="text-align:center;color:var(--text-light);">Cargando...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Movements history & Register form -->
         <div id="panel-movimientos" class="almacen-panel" style="display: none;">
           <div id="warehouse-movements-layout" style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 30px;">
             <!-- Register Movement -->
@@ -1255,7 +1125,7 @@
           </div>
         </div>
 
-        <!-- 3. Internal conversion UAN-32 -->
+        <!-- 4. Internal conversion UAN-32 -->
         <div id="panel-produccion" class="almacen-panel" style="display: none;">
           <div class="card prod-container">
             <h3 style="margin-bottom: 12px;">Producción Interna de UAN-32</h3>
@@ -1277,6 +1147,23 @@
                 <input type="text" id="uan-output-estimate" class="form-input" style="background-color: var(--bg); font-weight: 600;" value="0.00 Litros" readonly>
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top: 10px;">⚡ Ejecutar Conversión e Incrementar Stock</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="warehouse-assignment-modal" class="modal-overlay">
+        <div class="modal-card" style="max-width: 760px;">
+          <div class="modal-header">
+            <h2 id="warehouse-assignment-title">Asignar tamaños y reservar</h2>
+            <button class="modal-close" type="button" onclick="closeModal('warehouse-assignment-modal')">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p style="margin-top:0;color:var(--text-light);">Captura una o varias asignaciones por producto. La suma debe coincidir exactamente con la cantidad solicitada.</p>
+            <form id="warehouse-assignment-form">
+              <input type="hidden" id="warehouse-assignment-quote-id">
+              <div id="warehouse-assignment-items"></div>
+              <button type="submit" class="btn btn-primary" style="margin-top:12px;">Confirmar reserva</button>
             </form>
           </div>
         </div>
@@ -1737,7 +1624,6 @@
                   <tr>
                     <th>Nombre del Producto</th>
                     <th>Categoría</th>
-                    <th>Tamaños / Calibres</th>
                     <th style="text-align: right;">Precio Lista (MXN)</th>
                     <th style="text-align: right;">Base USD</th>
                     <th style="text-align: right;">Dcto Químico</th>
@@ -1748,7 +1634,7 @@
                 </thead>
                 <tbody id="admin-productos-tbody">
                   <tr>
-                    <td colspan="9" style="text-align: center; color: var(--text-light);">Cargando...</td>
+                    <td colspan="8" style="text-align: center; color: var(--text-light);">Cargando...</td>
                   </tr>
                 </tbody>
               </table>
@@ -2471,17 +2357,18 @@
                 <tr style="border-bottom: 1px solid var(--border); text-align: left;">
                   <th style="padding: 8px;">Producto</th>
                   <th style="padding: 8px; text-align: center;">Cantidad</th>
-                  <th style="padding: 8px; text-align: right;">Precio Lista</th>
-                  <th style="padding: 8px; text-align: right;">Precio Neto</th>
-                  <th style="padding: 8px; text-align: right;">Subtotal</th>
+                  <th class="quote-detail-money quote-detail-list" style="padding: 8px; text-align: right;">Precio del mes</th>
+                  <th id="quote-detail-net-heading" class="quote-detail-money" style="padding: 8px; text-align: right;">Precio neto</th>
+                  <th class="quote-detail-money quote-detail-proposed" style="padding: 8px; text-align: right;">Precio propuesto</th>
+                  <th class="quote-detail-money" style="padding: 8px; text-align: right;">Subtotal</th>
                 </tr>
               </thead>
               <tbody id="quote-detail-products-body">
                 <!-- Rendered dynamically -->
               </tbody>
               <tfoot>
-                <tr style="border-top: 2px solid var(--border); font-weight: bold;">
-                  <td colspan="4" style="padding: 10px; text-align: right;">Total Estimado:</td>
+                <tr id="quote-detail-total-row" class="quote-detail-money" style="border-top: 2px solid var(--border); font-weight: bold;">
+                  <td colspan="5" style="padding: 10px; text-align: right;">Total:</td>
                   <td id="quote-detail-total" style="padding: 10px; text-align: right; color: var(--accent);">0.00 MXN</td>
                 </tr>
               </tfoot>
@@ -2499,6 +2386,9 @@
             </button>
             <button id="btn-edit-quote" class="btn btn-secondary" style="display: none; width: auto; margin-top: 0;" onclick="toggleQuoteEditMode(true)">
               ✏️ Editar
+            </button>
+            <button id="btn-cancel-commercial-request" class="btn btn-secondary" style="display:none; width:auto; margin-top:0; color:#b45309; border-color:#f59e0b;" onclick="cancelCommercialRequest(event)">
+              Cancelar solicitud
             </button>
             <button id="btn-authorize-quote" class="btn btn-primary" style="display: none; width: auto; background: var(--accent); border-color: var(--accent); font-weight: 600; gap: 6px; align-items: center;">
               ✔️ Autorizar Cotización
@@ -2833,19 +2723,13 @@
             <label for="prod-description">Descripción</label>
             <textarea id="prod-description" class="form-input" rows="3" placeholder="Descripción del producto"></textarea>
           </div>
-          <div class="input-grid">
-            <div class="form-group">
-              <label for="prod-category">Categoría</label>
-              <select id="prod-category" class="form-input" required>
-                <option value="Híbrido">Híbrido (Semilla)</option>
-                <option value="Agroquímico">Agroquímico</option>
-                <option value="Fertilizante">Fertilizante</option>
-              </select>
-            </div>
-            <div class="form-group" id="group-prod-sizes">
-              <label for="prod-sizes">Tamaños / Calibres (separados por comas)</label>
-              <input type="text" id="prod-sizes" class="form-input" placeholder="ej. BT1, BT2, BT3, BW1, BW2, PT1, PT2, PT3">
-            </div>
+          <div class="form-group">
+            <label for="prod-category">Categoría</label>
+            <select id="prod-category" class="form-input" required>
+              <option value="Híbrido">Híbrido (Semilla)</option>
+              <option value="Agroquímico">Agroquímico</option>
+              <option value="Fertilizante">Fertilizante</option>
+            </select>
           </div>
           <div class="input-grid">
             <div class="form-group">
