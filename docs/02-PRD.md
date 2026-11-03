@@ -577,3 +577,9 @@ Asesor recibe solo `disponible` y no consulta movimientos. Almacén recibe tama�
 ### PRD-NFR-013 — Límite, auditoría y respuesta sin datos de personas
 
 Cada clave tiene un límite por minuto. Clave ausente, desconocida y revocada comparten el mismo cuerpo 401. Cada llamada con clave reconocida escribe una fila de auditoría sin cuerpo, sin clave y sin datos de personas. El sobre de error es `{ "error": { "codigo", "mensaje" } }`.
+
+## Incremento CHG-028 — Persistencia resiliente de solicitudes de Crédito y Apartado
+
+### PRD-FR-063 — Persistencia resiliente y saneamiento de payload para Crédito y Apartado
+
+`POST /api/cotizaciones` debe permitir registrar solicitudes en condición `CREDITO` y `APARTADO` sin fallar ante esquemas PostgreSQL heredados que conserven `NOT NULL` en `cotizacion_detalles.temporada_id` o que hayan omitido columnas aditivas de `CHG-025`, asegurando la migración mediante `db.ensureQuotationsSchema()`, reintentando una vez ante errores PostgreSQL `42703` o `23502`, y garantizando que el frontend envíe `descuento_aplicado = 0`, `precio_propuesto = null` y `slider.max = 0` cuando la condición no es `CONTADO`.

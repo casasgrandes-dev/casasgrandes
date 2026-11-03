@@ -348,3 +348,19 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
 | Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
 |---|---|---|---|---|---|---|---|
 | Arnés de agentes | HARNESS-REQ-001 | ADR-017 | BDD-SC-034, BDD-SC-036, BDD-SC-100, BDD-SC-103, BDD-SC-104, BDD-SC-105 | TDD-TC-121..123 | `features/`, `test/integration/`, `test/contract/`, `.github/workflows/ci.yml` | CI del PR | propuesta, sin merge |
+
+## Trazabilidad CHG-028
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-054, PRD-FR-056, PRD-FR-057, PRD-FR-063 | ADR-016, SDD-CMP-048, SDD-DB-019 | BDD-SC-119, BDD-SC-120 | TDD-TC-131, TDD-TC-132 | `db.js`, `server.js`, `public/js/app.js`, `public/index.html` | EVD-024 | verified-local |
+
+## EVD-024 — Evidencia local CHG-028
+
+- Fecha: 2026-11-03.
+- Calibración: Riesgo R3 (Creación transaccional de solicitudes comerciales de Crédito y Apartado).
+- Causa raíz identificada:
+  1. `POST /api/cotizaciones` enviaba `temporada_id = null` para `CREDITO` y `APARTADO` sin haber eliminado la restricción heredada `NOT NULL` en `cotizacion_detalles.temporada_id` ni contar con `ensureQuotationsSchema()` para autorrecuperar columnas de `CHG-025` en bases existentes, provocando HTTP 500 `Failed to create quotation` mientras `POST /api/cotizaciones/calcular` respondía 200.
+  2. En `public/js/app.js`, al cambiar de `CONTADO` a `CREDITO` o `APARTADO`, `debouncedLiveCalculation()` no reiniciaba `slider.max = 0` y `getQuotePayload()` calculaba `rawAdd` contra el precio final redondeado a entero, enviando residuos de `descuento_aplicado` en condiciones que no admiten descuentos.
+- Fase Roja: `node --test test/chg025_internal_proposals_reservations.test.js` y `npm run test:bdd` fallaron antes de la implementación en `TDD-TC-131`, `TDD-TC-132`, `BDD-SC-119` y `BDD-SC-120`.
+- Fase Verde y Regresión: `npm run lint`, `npm test`, `npm run test:bdd`, `npm run test:contract`, `npm run lint:openapi`, `npm run test:coverage` y `npm run audit:deps` ejecutados con código de salida 0.

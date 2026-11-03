@@ -46,6 +46,34 @@ async function ensureWarehouseMovementsSchema() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_almacen_mov_ciclo ON almacen_movimientos (ciclo_agricola) WHERE ciclo_agricola IS NOT NULL');
 }
 
+// Helper to guarantee all required columns and constraints on cotizaciones and cotizacion_detalles
+async function ensureQuotationsSchema() {
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS prospecto_id INTEGER');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_aplicado INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE cotizaciones ALTER COLUMN nucle_porcentaje TYPE NUMERIC(5,2) USING ROUND(nucle_porcentaje::numeric, 2)');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS descuento_nucle_mxn NUMERIC(14,2) NOT NULL DEFAULT 0');
+  await pool.query("ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'");
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado INTEGER NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada_en TIMESTAMP');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado_en TIMESTAMP');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_en TIMESTAMP');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_por_id INTEGER REFERENCES asesores(id)');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT');
+  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tamano TEXT');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_catalogo_unitario NUMERIC(14,2)');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_mensual_unitario NUMERIC(14,2)');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_mensual_unitario NUMERIC(14,2)');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tope_descuento_unitario NUMERIC(14,2)');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_asesor_unitario NUMERIC(14,2)');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_nucle_unitario NUMERIC(14,2) NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT');
+  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)');
+  await pool.query('ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL');
+}
+
 // Database auto-migration / schema updates
 async function initSchema() {
   try {
@@ -87,6 +115,7 @@ async function initSchema() {
     await pool.query('ALTER TABLE productos ADD COLUMN IF NOT EXISTS tamanos TEXT');
     await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tamano TEXT');
     await ensureWarehouseMovementsSchema();
+    await ensureQuotationsSchema();
 
     // Reclassify agrochemicals miscategorized as hybrid seed
     await pool.query(`
@@ -600,6 +629,7 @@ async function initSchema() {
     `);
     console.log('PostgreSQL schema auto-updates checked/applied successfully.');
   } catch (err) {
+    initSchemaPromise = null;
     console.error('Error checking/applying PostgreSQL schema updates:', err.message);
     throw err;
   }
@@ -707,6 +737,7 @@ module.exports = {
   pool, // Expose raw pool in case direct operations are needed
   initSchema: ensureSchema,
   ensureWarehouseMovementsSchema,
+  ensureQuotationsSchema,
   checkReadiness,
   close
 };

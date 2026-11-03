@@ -467,7 +467,7 @@ Express sirve el frontend y las APIs; PostgreSQL conserva el estado. El incremen
 ### SDD-DB-019 — Extensión aditiva CHG-025
 
 - `cotizaciones`: `flujo_version`, `venta_confirmada`, `cobro_confirmado`, `almacen_estado`, fechas y actores de decisión.
-- `cotizacion_detalles`: `precio_propuesto_unitario` nullable.
+- `cotizacion_detalles`: `precio_propuesto_unitario` nullable y eliminación de restricción `NOT NULL` heredada en `temporada_id` (`ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL`) mediante `ensureQuotationsSchema()`, con autorrecuperación transaccional en `POST /api/cotizaciones`.
 - `cotizacion_reservas`: detalle, producto, tamaño, cantidad, estado, actores y fechas; índice parcial para reservas activas.
 - `documentos_credito`: versiones institucionales con una fila activa.
 - Migraciones aditivas e idempotentes; ningún histórico se recalcula.

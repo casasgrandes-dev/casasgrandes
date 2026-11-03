@@ -456,3 +456,178 @@ test('TDD-TC-113/119: las rutas reales preservan reservas e idempotencia de tran
   assert.equal((await deliveryReplay.json()).replay, true);
   assert.equal(mutationCount, 0);
 });
+
+test('TDD-TC-131: POST /api/cotizaciones crea solicitudes CREDITO y APARTADO con autorrecuperación de esquema y temporada_id compatible', async t => {
+  const jwt = require('jsonwebtoken');
+  const db = require('../db');
+  const { app } = require('../server');
+  const originalGet = db.get;
+  const originalTransaction = db.transaction;
+  const originalEnsureQuotationsSchema = db.ensureQuotationsSchema;
+
+  assert.equal(typeof db.ensureQuotationsSchema, 'function', 'db.ensureQuotationsSchema debe estar exportada');
+  const dbSource = fs.readFileSync(path.join(root, 'db.js'), 'utf8');
+  assert.match(dbSource, /ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL/);
+
+  let ensureSchemaCalls = 0;
+  let simulateMissingColumnOnce = false;
+  const insertedHeaders = [];
+  const insertedDetails = [];
+
+  db.ensureQuotationsSchema = async () => {
+    ensureSchemaCalls += 1;
+    simulateMissingColumnOnce = false;
+  };
+  db.get = async query => {
+    const sql = String(query);
+    if (sql.includes('FROM asesores')) {
+      return {
+        id: 5,
+        nombre: 'Asesor Ficticio CHG-028',
+        usuario: 'asesor-chg028',
+        nivel_rol: 'Asesor',
+        email: 'asesor.chg028@example.test',
+        activo: 1,
+        session_version: 1
+      };
+    }
+    if (sql.includes('FROM clientes')) {
+      return {
+        id: 22,
+        nombre: 'Productor Demo CHG-028',
+        asesor_id: 5,
+        cuenta_clave_id: 1,
+        activo: 1
+      };
+    }
+    if (sql.includes('FROM cuentas_clave')) {
+      return { id: 1, tier_name: 'General', descuento_mxn: 0 };
+    }
+    if (sql.includes('FROM productos')) {
+      return {
+        id: 7,
+        producto: 'HIPOPOTAMO ACCELERON DEMO',
+        tipo_categoria: 'Híbrido',
+        list_price_mxn: 7015,
+        descontar: 1,
+        activo: 1
+      };
+    }
+    return null;
+  };
+  db.transaction = async callback => callback({
+    get: async query => {
+      const sql = String(query);
+      if (sql.includes('FROM clientes')) {
+        return {
+          id: 22,
+          nombre: 'Productor Demo CHG-028',
+          asesor_id: 5,
+          cuenta_clave_id: 1,
+          activo: 1
+        };
+      }
+      if (sql.includes('FROM cuentas_clave')) {
+        return { id: 1, tier_name: 'General', descuento_mxn: 0 };
+      }
+      if (sql.includes('FROM productos')) {
+        return {
+          id: 7,
+          producto: 'HIPOPOTAMO ACCELERON DEMO',
+          tipo_categoria: 'Híbrido',
+          list_price_mxn: 7015,
+          descontar: 1,
+          activo: 1
+        };
+      }
+      return null;
+    },
+    all: async () => [],
+    run: async (query, params) => {
+      const sql = String(query);
+      if (sql.includes('INSERT INTO cotizaciones')) {
+        if (simulateMissingColumnOnce) {
+          const err = new Error('column "flujo_version" of relation "cotizaciones" does not exist');
+          err.code = '42703';
+          throw err;
+        }
+        insertedHeaders.push(params);
+        return { id: 800 + insertedHeaders.length, changes: 1 };
+      }
+      if (sql.includes('INSERT INTO cotizacion_detalles')) {
+        if (params[2] === null || params[2] === undefined) {
+          const err = new Error('null value in column "temporada_id" of relation "cotizacion_detalles" violates not-null constraint');
+          err.code = '23502';
+          throw err;
+        }
+        insertedDetails.push(params);
+        return { id: 900 + insertedDetails.length, changes: 1 };
+      }
+      return { id: 1, changes: 1 };
+    }
+  });
+
+  t.after(() => {
+    db.get = originalGet;
+    db.transaction = originalTransaction;
+    db.ensureQuotationsSchema = originalEnsureQuotationsSchema;
+  });
+
+  const server = http.createServer(app);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+
+  const token = jwt.sign({ id: 5, nivel_rol: 'Asesor', session_version: 1 }, process.env.JWT_SECRET);
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const creditResponse = await fetch(`${baseUrl}/api/cotizaciones`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      cliente_id: 22,
+      condiciones_pago: 'CREDITO',
+      items: [{ producto_id: 7, cantidad: 100, descuento_aplicado: 0.2, precio_propuesto: 6500 }]
+    })
+  });
+  assert.equal(creditResponse.status, 201);
+  const creditBody = await creditResponse.json();
+  assert.equal(creditBody.condiciones_pago, 'CREDITO');
+  assert.equal(creditBody.estatus, 'Pendiente');
+  assert.equal(creditBody.flujo_version, 'CHG-025');
+  assert.equal(creditBody.total_mxn, 757620);
+  assert.equal(insertedDetails[0][2], 1);
+  assert.equal(insertedDetails[0][5], 7576.2);
+  assert.equal(insertedDetails[0][6], 757620);
+  assert.equal(insertedDetails[0][13], null);
+
+  simulateMissingColumnOnce = true;
+  const apartadoResponse = await fetch(`${baseUrl}/api/cotizaciones`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      cliente_id: 22,
+      condiciones_pago: 'APARTADO',
+      items: [{ producto_id: 7, cantidad: 50, descuento_aplicado: 100 }]
+    })
+  });
+  assert.equal(apartadoResponse.status, 201);
+  const apartadoBody = await apartadoResponse.json();
+  assert.equal(apartadoBody.condiciones_pago, 'APARTADO');
+  assert.equal(apartadoBody.estatus, 'Pendiente');
+  assert.equal(apartadoBody.flujo_version, 'CHG-025');
+  assert.equal(apartadoBody.total_mxn, 0);
+  assert.equal(ensureSchemaCalls, 1);
+  assert.equal(insertedDetails[1][2], 1);
+  assert.equal(insertedDetails[1][5], 0);
+  assert.equal(insertedDetails[1][6], 0);
+});
+
+test('TDD-TC-132: getQuotePayload y debouncedLiveCalculation limpian descuento, precio propuesto y slider.max fuera de CONTADO', () => {
+  const appJs = fs.readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8');
+  assert.match(appJs, /const isContadoCondition = condition === 'CONTADO';/);
+  assert.match(appJs, /slider\.max = 0;/);
+});

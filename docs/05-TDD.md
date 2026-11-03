@@ -789,3 +789,19 @@ Propuesta. El detalle y el rojo esperado están en `docs/cambios/CHG-027/casos-t
 
 - Cubre: BDD-SC-107..118.
 - Estado: pendiente. Hoy el archivo se omite con `@no-implementado`.
+
+## Casos TDD del Incremento CHG-028
+
+### TDD-TC-131 — Creación HTTP y autorrecuperación de esquema en `POST /api/cotizaciones` para `CREDITO` y `APARTADO`
+
+- Cubre: BDD-SC-119, BDD-SC-120, PRD-FR-054, PRD-FR-056, PRD-FR-057, PRD-FR-063.
+- Archivo: `test/chg025_internal_proposals_reservations.test.js`.
+- Verifica que `db.ensureQuotationsSchema` asegura las columnas de `cotizaciones` y `cotizacion_detalles` y elimina `NOT NULL` en `temporada_id`, y que `POST /api/cotizaciones` persiste solicitudes `CREDITO` y `APARTADO` con código 201 y autorrecuperación ante errores PostgreSQL `42703` o `23502`.
+- Estado: passed-local.
+
+### TDD-TC-132 — Saneamiento de payload y slider en Cotizador al cambiar a `CREDITO` o `APARTADO`
+
+- Cubre: BDD-SC-119, BDD-SC-120, PRD-FR-054, PRD-FR-063.
+- Archivo: `test/chg025_internal_proposals_reservations.test.js`.
+- Verifica que `getQuotePayload()` en `public/js/app.js` fuerce `descuento_aplicado = 0` y `precio_propuesto = null` cuando `condiciones_pago !== 'CONTADO'`, y que `debouncedLiveCalculation()` restablezca `slider.max = 0` cuando la condición no admite descuento de asesor.
+- Estado: passed-local.

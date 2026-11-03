@@ -187,3 +187,19 @@
 | 2 | Dejar el Gherkin cargado y omitido | BDD-SC-107..118 | `npm run test:bdd` con escenarios skipped | hecho en la rama |
 | 3 | Confirmar C-01..C-12 e implementar en dos cortes | PRD-FR-060..062 | Pruebas rojas y luego verdes | pendiente |
 | 4 | Abrir el PR de especificación sin merge | CHG-027 | URL del PR | pendiente de publicación |
+
+## Incremento 28 — CHG-028
+
+- Objetivo: OBJ-022
+- Requisitos: PRD-FR-054, PRD-FR-056, PRD-FR-057, PRD-FR-063
+- Decisión: ADR-016
+- Escenarios: BDD-SC-119, BDD-SC-120
+- Pruebas: TDD-TC-131, TDD-TC-132
+- Gate de salida: CI local en verde; merge y despliegue sujetos a aprobación explícita del propietario.
+
+| Orden | Tarea | IDs | Evidencia esperada | Estado |
+|---|---|---|---|---|
+| 1 | Documentar paquete CHG-028 y trazabilidad | CHG-028, PRD-FR-063 | `docs/cambios/CHG-028/` y `docs/02..09` | completed |
+| 2 | Escribir escenarios BDD y pruebas TDD en rojo | BDD-SC-119, BDD-SC-120, TDD-TC-131, TDD-TC-132 | Fallo inicial controlado | completed |
+| 3 | Implementar `ensureQuotationsSchema`, autorrecuperación en `POST /api/cotizaciones` y limpieza de payload en `public/js/app.js` | SDD-CMP-048, SDD-DB-019 | Pruebas unitarias, HTTP y BDD en verde | completed |
+| 4 | Ejecutar verificación completa de CI | EVD-024 | Lint, tests, BDD, contrato, cobertura y auditoría en verde | completed |

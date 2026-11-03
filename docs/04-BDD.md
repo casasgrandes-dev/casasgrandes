@@ -976,3 +976,17 @@ CHG-026 deja ejecutable una muestra, no el archivo completo. Los escenarios vivo
 BDD-SC-104 se ejercita contra PostgreSQL aislado con `npm run test:integration` cuando existe `TEST_POSTGRES_URL`. El resto de este documento sigue siendo la especificación.
 
 BDD-SC-107..118 se cargan desde `features/chg027_bot_inventario.feature` y quedan omitidos por `@no-implementado`. La corrida verde de ese archivo no implementa CHG-027.
+
+## Escenarios BDD del Incremento CHG-028
+
+### BDD-SC-119 — Creación exitosa de solicitud de Crédito a precio de cosecha
+
+- **Dado** un asesor autenticado con un híbrido activo
+- **Cuando** crea una solicitud `CREDITO` en `POST /api/cotizaciones` aun con residuo de descuento en el payload
+- **Entonces** responde 201 con condición `CREDITO`, estatus `Pendiente`, `flujo_version = 'CHG-025'` y total calculado a precio de cosecha (`precio_lleno * 1.08`).
+
+### BDD-SC-120 — Creación exitosa de solicitud de Apartado sin importes y con autorrecuperación de esquema
+
+- **Dado** un asesor autenticado y un esquema donde `cotizacion_detalles` requiere aseguramiento de columnas o de nulabilidad en `temporada_id`
+- **Cuando** crea una solicitud `APARTADO` en `POST /api/cotizaciones`
+- **Entonces** el servidor ejecuta `ensureQuotationsSchema()`, completa la transacción y responde 201 con condición `APARTADO`, estatus `Pendiente` y total `0`.

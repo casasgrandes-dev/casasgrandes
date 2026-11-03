@@ -151,3 +151,141 @@ When(
 Then('no se escribe ninguna reserva', function () {
   assert.equal(this.reservationWrites, 0);
 });
+
+When(
+  'crea una solicitud {string} de {int} unidades con descuento residual {int}',
+  async function (condition, quantity, residualDiscount) {
+    db.ensureQuotationsSchema = async () => {};
+    db.transaction = async callback => callback({
+      get: async sql => {
+        const text = String(sql);
+        if (text.includes('FROM clientes')) {
+          return {
+            id: 10,
+            nombre: 'Productor Ficticio',
+            asesor_id: FAKE_ADVISOR.id,
+            cuenta_clave_id: 1,
+            activo: 1
+          };
+        }
+        if (text.includes('FROM cuentas_clave')) return { id: 1, tier_name: 'General', descuento_mxn: 0 };
+        if (text.includes('FROM productos')) {
+          return {
+            id: 7,
+            producto: 'Híbrido Demostración',
+            tipo_categoria: 'Híbrido',
+            list_price_mxn: 7000,
+            descontar: 1,
+            activo: 1
+          };
+        }
+        return null;
+      },
+      all: async () => [],
+      run: async (sql, params) => {
+        const text = String(sql);
+        if (text.includes('INSERT INTO cotizaciones')) {
+          this.createdQuoteHeader = params;
+          return { id: 501, changes: 1 };
+        }
+        if (text.includes('INSERT INTO cotizacion_detalles')) {
+          if (params[2] === null || params[2] === undefined) {
+            const err = new Error('null value in column "temporada_id" of relation "cotizacion_detalles" violates not-null constraint');
+            err.code = '23502';
+            throw err;
+          }
+          this.createdQuoteDetail = params;
+          return { id: 601, changes: 1 };
+        }
+        return { id: 1, changes: 1 };
+      }
+    });
+
+    this.response = await this.http()
+      .post('/api/cotizaciones')
+      .set('Authorization', `Bearer ${this.token}`)
+      .send({
+        cliente_id: 10,
+        condiciones_pago: condition,
+        items: [{ producto_id: 7, cantidad: quantity, descuento_aplicado: residualDiscount }]
+      });
+  }
+);
+
+When(
+  'crea una solicitud {string} de {int} unidades ante un esquema con restricción heredada en temporada',
+  async function (condition, quantity) {
+    let schemaRepaired = false;
+    db.ensureQuotationsSchema = async () => {
+      schemaRepaired = true;
+    };
+    db.transaction = async callback => callback({
+      get: async sql => {
+        const text = String(sql);
+        if (text.includes('FROM clientes')) {
+          return {
+            id: 10,
+            nombre: 'Productor Ficticio',
+            asesor_id: FAKE_ADVISOR.id,
+            cuenta_clave_id: 1,
+            activo: 1
+          };
+        }
+        if (text.includes('FROM cuentas_clave')) return { id: 1, tier_name: 'General', descuento_mxn: 0 };
+        if (text.includes('FROM productos')) {
+          return {
+            id: 7,
+            producto: 'Híbrido Demostración',
+            tipo_categoria: 'Híbrido',
+            list_price_mxn: 7000,
+            descontar: 1,
+            activo: 1
+          };
+        }
+        return null;
+      },
+      all: async () => [],
+      run: async (sql, params) => {
+        const text = String(sql);
+        if (text.includes('INSERT INTO cotizaciones')) {
+          if (!schemaRepaired) {
+            const err = new Error('column "flujo_version" of relation "cotizaciones" does not exist');
+            err.code = '42703';
+            throw err;
+          }
+          this.createdQuoteHeader = params;
+          return { id: 502, changes: 1 };
+        }
+        if (text.includes('INSERT INTO cotizacion_detalles')) {
+          if (params[2] === null || params[2] === undefined) {
+            const err = new Error('null value in column "temporada_id" of relation "cotizacion_detalles" violates not-null constraint');
+            err.code = '23502';
+            throw err;
+          }
+          this.createdQuoteDetail = params;
+          return { id: 602, changes: 1 };
+        }
+        return { id: 1, changes: 1 };
+      }
+    });
+
+    this.response = await this.http()
+      .post('/api/cotizaciones')
+      .set('Authorization', `Bearer ${this.token}`)
+      .send({
+        cliente_id: 10,
+        condiciones_pago: condition,
+        items: [{ producto_id: 7, cantidad: quantity, descuento_aplicado: 0 }]
+      });
+  }
+);
+
+Then(
+  'la solicitud creada tiene condición {string}, estatus {string} y total {int}',
+  function (condition, status, total) {
+    assert.equal(this.response.body.condiciones_pago, condition);
+    assert.equal(this.response.body.estatus, status);
+    assert.equal(this.response.body.total_mxn, total);
+    assert.equal(this.response.body.flujo_version, 'CHG-025');
+  }
+);

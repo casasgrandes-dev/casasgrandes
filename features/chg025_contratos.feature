@@ -15,3 +15,13 @@ Característica: Contratos comerciales CHG-025
     Entonces la respuesta es 200
     Y el total es 0
     Y el precio final de la partida es 0
+
+  Escenario: BDD-SC-119 creación exitosa de solicitud de Crédito a precio de cosecha
+    Cuando crea una solicitud "CREDITO" de 10 unidades con descuento residual 500
+    Entonces la respuesta es 201
+    Y la solicitud creada tiene condición "CREDITO", estatus "Pendiente" y total 75600
+
+  Escenario: BDD-SC-120 creación exitosa de solicitud de Apartado sin importes y con autorrecuperación de esquema
+    Cuando crea una solicitud "APARTADO" de 25 unidades ante un esquema con restricción heredada en temporada
+    Entonces la respuesta es 201
+    Y la solicitud creada tiene condición "APARTADO", estatus "Pendiente" y total 0

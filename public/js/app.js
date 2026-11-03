@@ -2425,10 +2425,12 @@ function getQuotePayload() {
   const client_id = Number(document.getElementById('quote-client').value);
   const ciclo_agricola = document.getElementById('quote-ciclo').value;
   const condiciones_pago = document.getElementById('quote-condicion').value;
+  const condition = String(condiciones_pago || '').trim().toUpperCase();
+  const isContadoCondition = condition === 'CONTADO';
   const temporada_id = Number(document.getElementById('quote-temporada').value);
   const financiera = document.getElementById('quote-financiera').value.trim();
   const notas = document.getElementById('quote-notas').value.trim();
-  const nucle_aplicado = Boolean(document.getElementById('quote-nucle')?.checked);
+  const nucle_aplicado = isContadoCondition && Boolean(document.getElementById('quote-nucle')?.checked);
   
   const items = [];
   const wrappers = document.querySelectorAll('#items-builder-container .item-row-wrapper');
@@ -2440,8 +2442,8 @@ function getQuotePayload() {
     const finalInput = w.querySelector('.item-final-price-input');
     
     if (select && select.value && qtyInput && qtyInput.value) {
-      let additionalDiscount = getSliderAdditionalDiscount(slider);
-      if (finalInput && slider) {
+      let additionalDiscount = isContadoCondition ? getSliderAdditionalDiscount(slider) : 0;
+      if (isContadoCondition && finalInput && slider) {
         const basePrice = parseFloat(slider.getAttribute('data-base-price')) || 0;
         const nucleDiscount = parseFloat(slider.getAttribute('data-nucle-discount')) || 0;
         const discountFloor = parseFloat(slider.getAttribute('data-discount-floor')) || 0;
@@ -2456,8 +2458,8 @@ function getQuotePayload() {
       items.push({
         producto_id: Number(select.value),
         cantidad: Number(qtyInput.value),
-        precio_propuesto: proposedPriceInput?.value ? Number(proposedPriceInput.value) : null,
-        descuento_aplicado: additionalDiscount
+        precio_propuesto: isContadoCondition && proposedPriceInput?.value ? Number(proposedPriceInput.value) : null,
+        descuento_aplicado: isContadoCondition ? additionalDiscount : 0
       });
     }
   });
@@ -2722,6 +2724,7 @@ function debouncedLiveCalculation() {
             } else if (slider) {
               slider.value = 0;
               slider.step = '1';
+              slider.max = 0;
               slider.setAttribute('data-contract-prev', '0:0');
               slider.setAttribute('data-discount-floor', '0');
               slider.disabled = true;

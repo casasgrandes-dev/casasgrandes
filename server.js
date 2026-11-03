@@ -995,7 +995,8 @@ app.post('/api/cotizaciones/calcular', authenticateToken, async (req, res) => {
 
 // CREATE QUOTATION / ORDER
 app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
-  const { cliente_id, ciclo_agricola, condiciones_pago: condicionesPagoInput, temporada_id, items, financiera, notas, prospecto_id, planificacion_id, origen_etapa } = req.body;
+  const { cliente_id, ciclo_agricola: cicloAgricolaInput, condiciones_pago: condicionesPagoInput, temporada_id, items, financiera, notas, prospecto_id, planificacion_id, origen_etapa } = req.body;
+  const ciclo_agricola = String(cicloAgricolaInput || 'O-I 2026').trim();
   let condiciones_pago;
   let commercialPolicy;
   try {
@@ -1156,7 +1157,10 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     // Status logic: quotations start as 'Pendiente' until authorized by Admin/Coordinator
     const defaultStatus = 'Pendiente';
     
-    const persisted = await db.transaction(async tx => {
+    const resolvedTemporadaId = condiciones_pago === 'CONTADO'
+      ? (temporada_id || activeSeason.id)
+      : (Number.isInteger(Number(temporada_id)) && Number(temporada_id) > 0 ? Number(temporada_id) : 1);
+    const executeQuotationTransaction = () => db.transaction(async tx => {
       let lockedPlan = directSalePlan;
       let lockedProspect = null;
       if (directSalePlan) {
@@ -1211,7 +1215,7 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
         `, [
           cotId,
           row.item.producto_id,
-          condiciones_pago === 'CONTADO' ? (temporada_id || activeSeason.id) : null,
+          resolvedTemporadaId,
           row.item.cantidad,
           row.listPrice,
           row.netPrice,
@@ -1259,7 +1263,34 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       return { cotId, prospectId: persistedProspectId };
     });
     
-    res.status(201).json({ id: persisted.cotId, folio: prefix, total_mxn: grandTotal, descuento_nucle_mxn: nucleDiscountTotal, status: defaultStatus, message: 'Quotation submitted successfully' });
+    let persisted;
+    try {
+      persisted = await executeQuotationTransaction();
+    } catch (txErr) {
+      const isQuotationsSchemaError = txErr && (
+        txErr.code === '42703' ||
+        txErr.code === '23502' ||
+        /column .* of relation "(cotizaciones|cotizacion_detalles)" does not exist/i.test(String(txErr.message || '')) ||
+        /null value in column "temporada_id" of relation "cotizacion_detalles"/i.test(String(txErr.message || ''))
+      );
+      if (isQuotationsSchemaError && typeof db.ensureQuotationsSchema === 'function') {
+        await db.ensureQuotationsSchema();
+        persisted = await executeQuotationTransaction();
+      } else {
+        throw txErr;
+      }
+    }
+    res.status(201).json({
+      id: persisted.cotId,
+      folio: prefix,
+      condiciones_pago,
+      estatus: defaultStatus,
+      status: defaultStatus,
+      flujo_version: 'CHG-025',
+      total_mxn: grandTotal,
+      descuento_nucle_mxn: nucleDiscountTotal,
+      message: 'Quotation submitted successfully'
+    });
     
   } catch (err) {
     if (err instanceof PricingDomainError) {
