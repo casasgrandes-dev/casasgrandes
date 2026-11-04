@@ -4143,12 +4143,9 @@ async function loadAlmacenData() {
             }).join('');
 
             lotsHtml = `
-              <tr id="lots-row-${s.id}" class="lot-breakdown-row" style="background-color: #f8fafc; border-bottom: 1px solid var(--border);">
-                <td colspan="4" style="padding: 6px 14px 10px 32px;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <div style="font-size: 11px; color: var(--text-light); font-weight: 600;">📦 Lotes que conforman el saldo (${s.lotes.length}):</div>
-                    <button type="button" onclick="event.stopPropagation(); toggleProductLotsRow(${s.id})" style="background: none; border: none; font-size: 11px; color: var(--primary); cursor: pointer; text-decoration: underline; padding: 0;">▲ Ocultar lotes</button>
-                  </div>
+              <tr id="lots-row-${s.id}" class="lot-breakdown-row" style="display: none; background-color: #f8fafc; border-bottom: 1px solid var(--border);">
+                <td colspan="4" style="padding: 8px 14px 12px 36px;">
+                  <div style="font-size: 11px; color: var(--text-light); margin-bottom: 6px; font-weight: 600;">📦 Lotes que conforman el saldo (${s.lotes.length}):</div>
                   <div style="display: flex; flex-wrap: wrap; align-items: center;">
                     ${lotsItems}
                   </div>
@@ -4157,18 +4154,16 @@ async function loadAlmacenData() {
             `;
           }
 
-          const lotBadgeBtn = hasLots
-            ? `<button type="button" id="btn-toggle-lots-${s.id}" onclick="event.stopPropagation(); toggleProductLotsRow(${s.id})" style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin-left: 8px;" title="Ver o contraer desglose de lotes">
-                 📦 ${s.lotes.length} ${s.lotes.length === 1 ? 'lote' : 'lotes'} <span id="arrow-lots-${s.id}">▼</span>
-               </button>`
-            : '';
+          const arrowToggle = hasLots
+            ? `<button type="button" id="arrow-lots-${s.id}" onclick="event.stopPropagation(); toggleProductLotsRow(${s.id})" style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; border-radius: 4px; width: 22px; height: 22px; padding: 0; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;" title="Expandir o contraer lotes">▶</button>`
+            : `<span style="display: inline-block; width: 22px; flex-shrink: 0;"></span>`;
 
           return `
             <tr class="product-stock-row" ${canAdjustStock ? `onclick="openStockAdjustmentModal(${s.id})" title="Editar existencias físicas de ${prodName}"` : ''} style="${isLow ? 'background-color: #fff5f5;' : ''}${canAdjustStock ? ' cursor: pointer;' : ''}">
               <td>
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <span><strong>${prodName}</strong></span>
-                  ${lotBadgeBtn}
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  ${arrowToggle}
+                  <strong>${prodName}</strong>
                 </div>
               </td>
               <td>${catName}</td>
