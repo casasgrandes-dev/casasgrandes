@@ -892,7 +892,7 @@ And la interfaz despliega el selector con la lista completa de asesores
 
 ## Feature: PRD-FR-060 — Clave de bot y lectura de inventario
 
-Estado: propuesta de CHG-027. El texto ejecutable está en `features/chg027_bot_inventario.feature` con la etiqueta `@no-implementado`. Cucumber omite esos escenarios. La omisión mantiene la suite en verde y no cuenta como aceptación.
+Estado: implementado en la rama, sin merge. El texto ejecutable está en `features/chg027_bot_inventario.feature`.
 
 ### BDD-SC-107 — Salud sin clave
 
@@ -959,6 +959,24 @@ Estado: propuesta de CHG-027. El texto ejecutable está en `features/chg027_bot_
 - **Cuando** consulta el inventario
 - **Entonces** queda una fila sin cuerpo, sin clave y sin datos de cliente
 
+### BDD-SC-122 — Lotes del Administrador
+
+- **Dado** un bot de Administrador y el híbrido con lote `LOTE-DEMO-1`
+- **Cuando** pide el detalle
+- **Entonces** ve el lote y el tamaño del lote, y no el libro de tamaños con reserva
+
+### BDD-SC-123 — Movimiento manual
+
+- **Dado** un movimiento manual de tipo `Entrada` con lote
+- **Cuando** el Administrador consulta los movimientos
+- **Entonces** el tipo y el lote aparecen, y el campo `tamano` no
+
+### BDD-SC-124 — Búsqueda sin diacríticos
+
+- **Dado** el híbrido de demostración
+- **Cuando** el bot busca `Hibrido`
+- **Entonces** el disponible es 100
+
 ### BDD-SC-118 — Alta y revocación
 
 - **Dado** un administrador ficticio con sesión
@@ -975,7 +993,7 @@ CHG-026 deja ejecutable una muestra, no el archivo completo. Los escenarios vivo
 
 BDD-SC-104 se ejercita contra PostgreSQL aislado con `npm run test:integration` cuando existe `TEST_POSTGRES_URL`. El resto de este documento sigue siendo la especificación.
 
-BDD-SC-107..118 se cargan desde `features/chg027_bot_inventario.feature` y quedan omitidos por `@no-implementado`. La corrida verde de ese archivo no implementa CHG-027.
+BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventario.feature`.
 
 ## Escenarios BDD del Incremento CHG-028
 

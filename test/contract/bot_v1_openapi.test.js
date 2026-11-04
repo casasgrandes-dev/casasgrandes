@@ -1,6 +1,6 @@
 'use strict';
 
-// TDD-TC-121 — el contrato CHG-027 es válido y las rutas siguen sin montar.
+// TDD-TC-121 — el contrato CHG-027 es válido y las respuestas reales cumplen el esquema.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -10,6 +10,7 @@ process.env.NODE_ENV = 'test';
 process.env.SKIP_INIT_SCHEMA = 'true';
 
 const { loadOpenApi, validateResponse, defaultSpecPath } = require('../support/openapiResponse');
+const { testBotPepper } = require('../support/botPepper');
 
 const RUTAS = [
   ['GET', '/api/v1/bot/health'],
@@ -142,6 +143,45 @@ test('TDD-TC-121: los ejemplos del contrato cumplen y un campo de más no cumple
   });
   assert.equal(detalle.valid, true, JSON.stringify(detalle.errors));
 
+  const detalleAdministrador = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/v1/bot/inventario/productos/{productoId}',
+    method: 'GET',
+    status: 200,
+    body: {
+      vista: 'administrador',
+      id: 7,
+      nombre: 'Híbrido Demostración',
+      clave: 'HIB-DEMO',
+      categoria: 'Híbrido',
+      existencia_fisica: 140,
+      reservado: 40,
+      disponible: 100,
+      lotes: [{ lote: 'LOTE-DEMO-1', tamano: 'BT1', existencia_fisica: 90 }]
+    }
+  });
+  assert.equal(detalleAdministrador.valid, true, JSON.stringify(detalleAdministrador.errors));
+
+  const administradorConTamanos = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/v1/bot/inventario/productos/{productoId}',
+    method: 'GET',
+    status: 200,
+    body: {
+      vista: 'administrador',
+      id: 7,
+      nombre: 'Híbrido Demostración',
+      clave: 'HIB-DEMO',
+      categoria: 'Híbrido',
+      existencia_fisica: 140,
+      reservado: 40,
+      disponible: 100,
+      tamanos: [{ tamano: 'BT1', existencia_fisica: 90, reservado: 30, disponible: 60 }],
+      lotes: [{ lote: 'LOTE-DEMO-1', tamano: 'BT1', existencia_fisica: 90 }]
+    }
+  });
+  assert.equal(administradorConTamanos.valid, false);
+
   const loteConReservado = await validateResponse({
     specPath: defaultSpecPath,
     requestPath: '/api/v1/bot/inventario/productos/{productoId}',
@@ -187,6 +227,55 @@ test('TDD-TC-121: los ejemplos del contrato cumplen y un campo de más no cumple
   });
   assert.equal(movimiento.valid, true, JSON.stringify(movimiento.errors));
 
+  const movimientoOperativo = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/v1/bot/inventario/movimientos',
+    method: 'GET',
+    status: 200,
+    body: {
+      vista: 'operativo',
+      datos: [{
+        id: 501,
+        fecha: '2026-11-03T15:00:00Z',
+        tipo: 'Entrada',
+        producto_id: 7,
+        producto_nombre: 'Híbrido Demostración',
+        cantidad_entrante: 90,
+        cantidad_saliente: 0,
+        existencias_resultantes: 140,
+        ciclo_agricola: 'OI-DEMO',
+        lote: 'LOTE-DEMO-1'
+      }],
+      paginacion: { limite: 50, siguiente: null }
+    }
+  });
+  assert.equal(movimientoOperativo.valid, true, JSON.stringify(movimientoOperativo.errors));
+
+  const operativoConTamano = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/v1/bot/inventario/movimientos',
+    method: 'GET',
+    status: 200,
+    body: {
+      vista: 'operativo',
+      datos: [{
+        id: 501,
+        fecha: '2026-11-03T15:00:00Z',
+        tipo: 'Entrada',
+        producto_id: 7,
+        producto_nombre: 'Híbrido Demostración',
+        cantidad_entrante: 90,
+        cantidad_saliente: 0,
+        existencias_resultantes: 140,
+        ciclo_agricola: null,
+        lote: 'LOTE-DEMO-1',
+        tamano: 'BT1'
+      }],
+      paginacion: { limite: 50, siguiente: null }
+    }
+  });
+  assert.equal(operativoConTamano.valid, false);
+
   const movimientoConCliente = await validateResponse({
     specPath: defaultSpecPath,
     requestPath: '/api/v1/bot/inventario/movimientos',
@@ -204,6 +293,7 @@ test('TDD-TC-121: los ejemplos del contrato cumplen y un campo de más no cumple
         cantidad_saliente: 0,
         existencias_resultantes: 140,
         ciclo_agricola: null,
+        lote: null,
         cliente_nombre: 'Persona Demostración'
       }],
       paginacion: { limite: 50, siguiente: null }
@@ -283,13 +373,44 @@ test('TDD-TC-121: cada ejemplo publicado cumple su esquema', async () => {
   }
 });
 
-test('TDD-TC-121: Express todavía no publica las rutas del contrato', async () => {
+test('TDD-TC-121: las respuestas reales de salud y de clave ausente cumplen el contrato', async t => {
+  process.env.BOT_API_KEY_PEPPER = testBotPepper();
   const request = require('supertest');
   const { app } = require('../../server');
-  for (const [method, path] of RUTAS) {
-    const response = method === 'POST'
-      ? await request(app).post(path).send({})
-      : await request(app).get(path);
-    assert.equal(response.status, 404, `${method} ${path}`);
-  }
+  const { installBotFixture } = require('../support/botFixture');
+  const fixture = installBotFixture();
+  t.after(() => fixture.restore());
+  const health = await request(app).get('/api/v1/bot/health');
+  assert.equal(health.status, 200, JSON.stringify(health.body));
+  const healthSchema = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/v1/bot/health',
+    method: 'GET',
+    status: 200,
+    body: health.body
+  });
+  assert.equal(healthSchema.valid, true, JSON.stringify(healthSchema.errors));
+  assert.deepEqual(Object.keys(health.body), ['status']);
+
+  const missing = await request(app).get('/api/v1/bot/inventario/productos');
+  assert.equal(missing.status, 401, JSON.stringify(missing.body));
+  const missingSchema = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/v1/bot/inventario/productos',
+    method: 'GET',
+    status: 401,
+    body: missing.body
+  });
+  assert.equal(missingSchema.valid, true, JSON.stringify(missingSchema.errors));
+
+  const admin = await request(app).post('/api/admin/bot/claves').send({});
+  assert.equal(admin.status, 401, JSON.stringify(admin.body));
+  const adminSchema = await validateResponse({
+    specPath: defaultSpecPath,
+    requestPath: '/api/admin/bot/claves',
+    method: 'POST',
+    status: 401,
+    body: admin.body
+  });
+  assert.equal(adminSchema.valid, true, JSON.stringify(adminSchema.errors));
 });
