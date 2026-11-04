@@ -289,3 +289,74 @@ Then(
     assert.equal(this.response.body.flujo_version, 'CHG-025');
   }
 );
+
+
+const FAKE_ADMIN = {
+  id: 99,
+  nombre: 'Administrador Ficticio',
+  usuario: 'admin.ficticio',
+  nivel_rol: 'Administrador',
+  email: 'admin.ficticio@example.test',
+  telefono: null,
+  activo: 1,
+  session_version: 1
+};
+
+Given('un administrador ficticio autenticado en Almacén', function () {
+  db.get = async sql => {
+    if (String(sql).includes('FROM asesores')) return FAKE_ADMIN;
+    return null;
+  };
+  db.all = async sql => {
+    if (String(sql).includes('SUM(COALESCE(cantidad_entrante')) {
+      return [{ lote: '2X2AD129L', tamano: 'BT1', existencias: 40 }];
+    }
+    return [];
+  };
+  db.transaction = async callback => callback({
+    get: async sql => {
+      const text = String(sql);
+      if (text.includes('FROM productos WHERE id')) {
+        return { id: 7, producto: 'Calamar - Vitala', tipo_categoria: 'Híbrido', activo: 1 };
+      }
+      if (text.includes('FROM almacen_movimientos')) {
+        return { cantidad: 40, existencias_resultantes: 40, existencias: 40 };
+      }
+      if (text.includes('FROM cotizacion_reservas')) {
+        return { cantidad: 0 };
+      }
+      return { existencias_resultantes: 40 };
+    },
+    all: async () => [],
+    run: async () => ({ id: 401, changes: 1 })
+  });
+  this.token = sign(FAKE_ADMIN);
+});
+
+When(
+  'consulta lotes disponibles del híbrido {int} para el tamaño {string} y registra una salida manual de {int} bolsas {string}',
+  async function (productId, size, quantity, movSize) {
+    this.lotsResponse = await this.http()
+      .get(`/api/almacen/lotes-disponibles?producto_id=${productId}&tamano=${encodeURIComponent(size)}`)
+      .set('Authorization', `Bearer ${this.token}`);
+    this.movementResponse = await this.http()
+      .post('/api/almacen/movimientos')
+      .set('Authorization', `Bearer ${this.token}`)
+      .send({
+        tipo: 'Salida',
+        items: [{ producto_id: productId, lote: '2X2AD129L', tamano: movSize, cantidad: quantity, categoria: 'Semilla' }]
+      });
+  }
+);
+
+Then('la consulta de lotes responde {int} y el movimiento manual responde {int}', function (lotsStatus, movStatus) {
+  assert.equal(this.lotsResponse.status, lotsStatus);
+  assert.equal(this.movementResponse.status, movStatus);
+});
+
+Then('si el administrador intenta consultar las solicitudes de reserva de Almacén recibe {int}', async function (expectedStatus) {
+  const res = await this.http()
+    .get('/api/almacen/solicitudes')
+    .set('Authorization', `Bearer ${this.token}`);
+  assert.equal(res.status, expectedStatus);
+});

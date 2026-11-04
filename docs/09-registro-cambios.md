@@ -26,6 +26,7 @@
 | CHG-026 | 2026-11-03 | Arnés para agentes: plantillas de cambio, BDD ejecutable, PostgreSQL 16 aislado, contrato OpenAPI, cobertura y CI. Sin comportamiento de negocio nuevo | ADR-017, HARNESS-REQ-001 | TDD-TC-121..123 | propuesta; sin merge |
 | CHG-027 | 2026-11-03 | Especificación del API de bots: lectura de inventario disponible, claves hasheadas, alcance `inventario:leer`, límite y auditoría. Sin rutas ni migraciones | ADR-018, ADR-019, OBJ-023, PRD-FR-060..062, PRD-NFR-013 | TDD-TC-121 ajustado; TDD-TC-124..130 pendientes; BDD-SC-107..118 omitidos | propuesta de especificación; sin implementación ni merge |
 | CHG-028 | 2026-11-03 | Persistencia resiliente de solicitudes de Crédito y Apartado en `POST /api/cotizaciones` (`ensureQuotationsSchema`, nulabilidad/respaldo de `temporada_id` y limpieza de payload y slider en Cotizador) | ADR-016, OBJ-022, PRD-FR-054, PRD-FR-056, PRD-FR-057, PRD-FR-063, SDD-CMP-048, SDD-DB-019 | BDD-SC-119, BDD-SC-120; TDD-TC-131, TDD-TC-132; EVD-024 | implemented-tested-local |
+| CHG-029 | 2026-11-03 | Habilitar entradas y salidas manuales de semilla con tamaño y lote en Almacén para el rol `Administrador`, manteniendo la bandeja de Solicitudes de Almacén exclusiva del rol `Almacen` | ADR-016, OBJ-022, PRD-FR-054, PRD-FR-059, PRD-FR-064, SDD-SEC-013 | BDD-SC-121; TDD-TC-120, TDD-TC-133; EVD-025 | implemented-tested-local |
 
 ## Reglas
 

@@ -1160,7 +1160,7 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     const resolvedTemporadaId = condiciones_pago === 'CONTADO'
       ? (temporada_id || activeSeason.id)
       : (Number.isInteger(Number(temporada_id)) && Number(temporada_id) > 0 ? Number(temporada_id) : 1);
-    const executeQuotationTransaction = () => db.transaction(async tx => {
+    const executeQuotationTransaction = async () => await db.transaction(async tx => {
       let lockedPlan = directSalePlan;
       let lockedProspect = null;
       if (directSalePlan) {
@@ -2406,7 +2406,7 @@ app.get('/api/almacen/lotes-disponibles', authenticateToken, async (req, res) =>
   if (!prodId) {
     return res.status(400).json({ error: 'El producto_id es requerido' });
   }
-  if (tamano && !canSeeSizes) {
+  if (tamano && !['Almacen', 'Administrador'].includes(req.user.nivel_rol)) {
     return res.status(403).json({ error: 'Solo Almacén puede consultar lotes por tamaño.' });
   }
 
@@ -2452,7 +2452,7 @@ app.get('/api/almacen/lotes-historial', authenticateToken, async (req, res) => {
   if (!prodId) {
     return res.status(400).json({ error: 'El producto_id es requerido' });
   }
-  if (tamano && req.user.nivel_rol !== 'Almacen') {
+  if (tamano && !['Almacen', 'Administrador'].includes(req.user.nivel_rol)) {
     return res.status(403).json({ error: 'Solo Almacén puede consultar el historial por tamaño.' });
   }
 
@@ -2602,7 +2602,7 @@ app.post('/api/almacen/movimientos', authenticateToken, async (req, res) => {
       }
 
       const isSeed = item.categoria === 'Semilla' || prod.tipo_categoria === 'Híbrido' || prod.tipo_categoria === 'Semilla';
-      if (isSeed && req.user.nivel_rol !== 'Almacen') {
+      if (isSeed && !['Almacen', 'Administrador'].includes(req.user.nivel_rol)) {
         const error = new Error('Solo Almacén puede registrar movimientos manuales de semilla por tamaño.');
         error.statusCode = 403;
         throw error;

@@ -271,7 +271,7 @@ async function showAppView() {
   }
   const seedMovementFilter = document.getElementById('cat-btn-semilla');
   if (seedMovementFilter) {
-    seedMovementFilter.style.display = user.nivel_rol === 'Almacen' ? '' : 'none';
+    seedMovementFilter.style.display = ['Almacen', 'Administrador'].includes(user.nivel_rol) ? '' : 'none';
   }
   const advisorReadOnlyInventory = user.nivel_rol === 'Asesor';
   ['tab-movimientos', 'btn-top-registrar-entrada', 'btn-top-registrar-salida', 'btn-card-registrar-entrada', 'btn-card-registrar-salida']
@@ -3395,7 +3395,7 @@ function populateMovementItemProducts(row, selectedProdId = null) {
   const prods = Array.isArray(allProducts) ? allProducts : [];
   const eligibleProducts = prods
     .filter(p => p.activo === 1)
-    .filter(p => user?.nivel_rol === 'Almacen' || (p.tipo_categoria !== 'Híbrido' && p.tipo_categoria !== 'Semilla'));
+    .filter(p => ['Almacen', 'Administrador'].includes(user?.nivel_rol) || (p.tipo_categoria !== 'Híbrido' && p.tipo_categoria !== 'Semilla'));
   const filtered = eligibleProducts.filter(p => {
     if (activeCategory === 'Semilla') {
       return p.tipo_categoria === 'Híbrido' || p.tipo_categoria === 'Semilla';
@@ -3427,7 +3427,7 @@ function updateMovementItemTamanos(row) {
   const prodObj = prods.find(p => p.id === prodId);
 
   const isSeed = prodObj && (prodObj.tipo_categoria === 'Híbrido' || prodObj.tipo_categoria === 'Semilla');
-  if (isSeed && user?.nivel_rol === 'Almacen') {
+  if (isSeed && ['Almacen', 'Administrador'].includes(user?.nivel_rol)) {
     tamanoGroup.style.display = 'block';
     const sizes = typeof getSizesForProduct === 'function' ? getSizesForProduct(prodObj) : [];
     const curVal = selectTamano.value;
@@ -3838,6 +3838,9 @@ function getSizesForProduct(productOrName) {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
+  }
+  if (prodObj && (prodObj.tipo_categoria === 'Híbrido' || prodObj.tipo_categoria === 'Semilla')) {
+    return ['BT1', 'BT2', 'BT3', 'BW1', 'BW2', 'PT1', 'PT2', 'PT3', 'PW1', 'PW2'];
   }
 
   return [];

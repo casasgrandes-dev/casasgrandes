@@ -203,3 +203,20 @@
 | 2 | Escribir escenarios BDD y pruebas TDD en rojo | BDD-SC-119, BDD-SC-120, TDD-TC-131, TDD-TC-132 | Fallo inicial controlado | completed |
 | 3 | Implementar `ensureQuotationsSchema`, autorrecuperación en `POST /api/cotizaciones` y limpieza de payload en `public/js/app.js` | SDD-CMP-048, SDD-DB-019 | Pruebas unitarias, HTTP y BDD en verde | completed |
 | 4 | Ejecutar verificación completa de CI | EVD-024 | Lint, tests, BDD, contrato, cobertura y auditoría en verde | completed |
+
+
+## Incremento 29 — CHG-029
+
+- Objetivo: OBJ-022
+- Requisitos: PRD-FR-054, PRD-FR-059, PRD-FR-064
+- Decisión: ADR-016, SDD-SEC-013
+- Escenarios: BDD-SC-121
+- Pruebas: TDD-TC-120, TDD-TC-133
+- Gate de salida: CI local en verde; merge y despliegue sujetos a aprobación explícita del propietario.
+
+| Orden | Tarea | IDs | Evidencia esperada | Estado |
+|---|---|---|---|---|
+| 1 | Documentar paquete CHG-029 y trazabilidad | CHG-029, PRD-FR-064 | `docs/cambios/CHG-029/` y `docs/02..09` | completed |
+| 2 | Escribir escenario BDD y pruebas TDD en rojo | BDD-SC-121, TDD-TC-120, TDD-TC-133 | Fallo inicial controlado | completed |
+| 3 | Habilitar movimientos manuales de semilla y filtro de lotes por tamaño para Administrador manteniendo Solicitudes exclusivo de Almacén | SDD-SEC-013 | Pruebas unitarias, HTTP y BDD en verde | completed |
+| 4 | Ejecutar verificación completa de CI | EVD-025 | Lint, tests, BDD, contrato, cobertura y auditoría en verde | completed |

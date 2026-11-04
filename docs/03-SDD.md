@@ -478,7 +478,7 @@ Express sirve el frontend y las APIs; PostgreSQL conserva el estado. El incremen
 - Administrador/Coordinador: autoriza/rechaza y confirma venta/cobro; no asigna tamaños.
 - Almacén: consulta solicitudes/tamaños y asigna; no autoriza condiciones comerciales.
 - `GET /api/productos` y las respuestas de propuestas eliminan `tamanos`/`tamano` para todo rol distinto de Almacén; Administración conserva el catálogo comercial sin controles de calibre.
-- Las lecturas heredadas de existencias, Kardex y lotes también omiten `tamano` para cualquier rol distinto de Almacén; los filtros por tamaño y los movimientos manuales de semilla se rechazan fuera de ese rol.
+- Las lecturas heredadas de existencias, Kardex y lotes sin filtro también omiten `tamano` para cualquier rol distinto de Almacén; los filtros de lotes por tamaño y los movimientos manuales de semilla en Almacén están permitidos únicamente para `Almacén` y `Administrador`, mientras que la bandeja de solicitudes y la asignación de tamaños a pedidos permanecen exclusivas de `Almacén`.
 - Descarga del PDF requiere sesión y rol comercial explícito; carga requiere Administrador.
 
 ## Diseño CHG-027

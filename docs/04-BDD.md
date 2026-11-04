@@ -834,7 +834,7 @@ And la interfaz despliega el selector con la lista completa de asesores
 - **Y** puede consultar existencias generales, sin lotes ni tamaños.
 - **Y** el catálogo de productos y los detalles de propuestas tampoco exponen tamaños a Asesor, Administrador o Coordinador.
 - **Y** las lecturas de Kardex/lotes omiten tamaños para cualquier rol distinto de Almacén
-- **Y** solo Almacén puede filtrar por tamaño o registrar movimientos manuales de semilla con tamaño.
+- **Y** solo Almacén y Administrador pueden filtrar lotes por tamaño o registrar movimientos manuales de semilla con tamaño en Almacén, mientras que las solicitudes de reserva permanecen exclusivas de Almacén.
 
 ### BDD-SC-098 — Precio propuesto opcional por partida de Contado
 - **Dado** una propuesta Contado con dos productos
@@ -990,3 +990,13 @@ BDD-SC-107..118 se cargan desde `features/chg027_bot_inventario.feature` y queda
 - **Dado** un asesor autenticado y un esquema donde `cotizacion_detalles` requiere aseguramiento de columnas o de nulabilidad en `temporada_id`
 - **Cuando** crea una solicitud `APARTADO` en `POST /api/cotizaciones`
 - **Entonces** el servidor ejecuta `ensureQuotationsSchema()`, completa la transacción y responde 201 con condición `APARTADO`, estatus `Pendiente` y total `0`.
+
+
+## Escenarios BDD del Incremento CHG-029
+
+### BDD-SC-121 — Administrador consulta lotes por tamaño y registra salida manual de semilla mientras Solicitudes permanece exclusivo de Almacén
+
+- **Dado** un usuario autenticado con rol `Administrador` en el módulo de Almacén
+- **Cuando** filtra lotes disponibles por tamaño (`GET /api/almacen/lotes-disponibles?producto_id=7&tamano=BT1`) y registra un movimiento manual de semilla con tamaño en `POST /api/almacen/movimientos`
+- **Entonces** la consulta de lotes responde `200` y el movimiento manual responde `201`
+- **Y** si el `Administrador` intenta consultar `GET /api/almacen/solicitudes` o asignar tamaños a un pedido en `POST /api/almacen/solicitudes/:id/asignaciones`, el servidor responde `403`.

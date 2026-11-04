@@ -364,3 +364,17 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
   2. En `public/js/app.js`, al cambiar de `CONTADO` a `CREDITO` o `APARTADO`, `debouncedLiveCalculation()` no reiniciaba `slider.max = 0` y `getQuotePayload()` calculaba `rawAdd` contra el precio final redondeado a entero, enviando residuos de `descuento_aplicado` en condiciones que no admiten descuentos.
 - Fase Roja: `node --test test/chg025_internal_proposals_reservations.test.js` y `npm run test:bdd` fallaron antes de la implementación en `TDD-TC-131`, `TDD-TC-132`, `BDD-SC-119` y `BDD-SC-120`.
 - Fase Verde y Regresión: `npm run lint`, `npm test`, `npm run test:bdd`, `npm run test:contract`, `npm run lint:openapi`, `npm run test:coverage` y `npm run audit:deps` ejecutados con código de salida 0.
+
+
+## Trazabilidad CHG-029
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-054, PRD-FR-059, PRD-FR-064 | ADR-016, SDD-SEC-013 | BDD-SC-121 | TDD-TC-120, TDD-TC-133 | `server.js`, `public/js/app.js`, `public/index.html` | EVD-025 | verified-local |
+
+## EVD-025 — Evidencia local CHG-029
+
+- Fecha: 2026-11-03.
+- Calibración: Riesgo R2 (Permisos RBAC de movimientos manuales de semilla en Almacén para Administrador conservando Solicitudes de Almacén exclusivo del rol Almacén).
+- Fase Roja: `node --test test/chg025_internal_proposals_reservations.test.js` y `npm run test:bdd` fallaron antes de la implementación en `TDD-TC-120`, `TDD-TC-133` y `BDD-SC-121`.
+- Fase Verde y Regresión: `npm run lint`, `npm test`, `npm run test:bdd`, `npm run test:contract`, `npm run lint:openapi`, `npm run test:coverage` y `npm run audit:deps` ejecutados con código de salida 0.

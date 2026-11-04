@@ -726,7 +726,7 @@
 ### TDD-TC-120 — Contrato visual y regresión del Cotizador
 - Cubre: BDD-SC-097..103; PRD-FR-054..058.
 - Verifica DOM condicionado, etiquetas, filtros, ausencia de tamaños/resumen y acciones por rol.
-- Verifica además que Administración no reciba ni edite calibres, que el backend redacte tamaños en catálogo, propuestas y Kardex para cualquier rol distinto de Almacén, y que solo Almacén pueda filtrar por tamaño o registrar movimientos manuales de semilla con tamaño.
+- Verifica además que Administración no reciba ni edite calibres en el catálogo comercial, que el backend redacte tamaños en catálogo, propuestas y Kardex para cualquier rol distinto de Almacén, y que solo `Almacen` y `Administrador` puedan filtrar lotes por tamaño o registrar movimientos manuales de semilla con tamaño (rechazando con 403 a `Coordinador` y demás roles).
 - Estado: passed-local
 
 ## Casos TDD del arnés CHG-026
@@ -804,4 +804,14 @@ Propuesta. El detalle y el rojo esperado están en `docs/cambios/CHG-027/casos-t
 - Cubre: BDD-SC-119, BDD-SC-120, PRD-FR-054, PRD-FR-063.
 - Archivo: `test/chg025_internal_proposals_reservations.test.js`.
 - Verifica que `getQuotePayload()` en `public/js/app.js` fuerce `descuento_aplicado = 0` y `precio_propuesto = null` cuando `condiciones_pago !== 'CONTADO'`, y que `debouncedLiveCalculation()` restablezca `slider.max = 0` cuando la condición no admite descuento de asesor.
+- Estado: passed-local.
+
+
+## Casos TDD del Incremento CHG-029
+
+### TDD-TC-133 — Movimientos manuales de semilla y filtro de lotes por tamaño para Administrador con exclusividad de Solicitudes en Almacén
+
+- Cubre: BDD-SC-121, PRD-FR-054, PRD-FR-059, PRD-FR-064, SDD-SEC-013.
+- Archivo: `test/chg025_internal_proposals_reservations.test.js`.
+- Verifica que `Administrador` pueda filtrar `GET /api/almacen/lotes-disponibles` por `tamano` (`200`) y registrar entradas/salidas manuales de semilla con `tamano` en `POST /api/almacen/movimientos` (`201`), que `Coordinador` reciba `403` en ambas operaciones, que `public/js/app.js` habilite `#cat-btn-semilla`, productos `Híbrido`/`Semilla` y selector de calibres en el formulario de movimientos para `['Almacen', 'Administrador']`, y que `GET /api/almacen/solicitudes` y `#tab-solicitudes` permanezcan exclusivos de `Almacen` (`403` para `Administrador`).
 - Estado: passed-local.

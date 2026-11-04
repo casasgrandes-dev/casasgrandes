@@ -246,7 +246,7 @@ test('TDD-TC-120: el catálogo entrega tamaños únicamente a Almacén', async t
       id,
       nombre: id === 2 ? 'Almacén' : 'Administrador',
       usuario: `usuario-${id}`,
-      nivel_rol: id === 2 ? 'Almacen' : 'Administrador',
+      nivel_rol: id === 2 ? 'Almacen' : (id === 3 ? 'Coordinador' : 'Administrador'),
       email: `usuario-${id}@example.test`,
       activo: 1,
       session_version: 1
@@ -297,7 +297,7 @@ test('TDD-TC-120: Kardex, lotes y movimientos manuales preservan la exclusividad
       id,
       nombre: id === 2 ? 'Almacén' : 'Administrador',
       usuario: `usuario-${id}`,
-      nivel_rol: id === 2 ? 'Almacen' : 'Administrador',
+      nivel_rol: id === 2 ? 'Almacen' : (id === 3 ? 'Coordinador' : 'Administrador'),
       email: `usuario-${id}@example.test`,
       activo: 1,
       session_version: 1
@@ -342,6 +342,7 @@ test('TDD-TC-120: Kardex, lotes y movimientos manuales preservan la exclusividad
 
   const adminHeaders = headersFor(1, 'Administrador');
   const warehouseHeaders = headersFor(2, 'Almacen');
+  const coordinatorHeaders = headersFor(3, 'Coordinador');
 
   const adminMovementsResponse = await fetch(`${baseUrl}/api/almacen/movimientos`, { headers: adminHeaders });
   assert.equal(adminMovementsResponse.status, 200);
@@ -357,12 +358,25 @@ test('TDD-TC-120: Kardex, lotes y movimientos manuales preservan la exclusividad
   const adminLots = await adminLotsResponse.json();
   assert.equal(Object.hasOwn(adminLots[0], 'tamano'), false);
 
+  const coordinatorSizeProbe = await fetch(`${baseUrl}/api/almacen/lotes-disponibles?producto_id=7&tamano=BT1`, { headers: coordinatorHeaders });
+  assert.equal(coordinatorSizeProbe.status, 403);
   const adminSizeProbe = await fetch(`${baseUrl}/api/almacen/lotes-disponibles?producto_id=7&tamano=BT1`, { headers: adminHeaders });
-  assert.equal(adminSizeProbe.status, 403);
+  assert.equal(adminSizeProbe.status, 200);
 
   const warehouseLotsResponse = await fetch(`${baseUrl}/api/almacen/lotes-disponibles?producto_id=7&tamano=BT1`, { headers: warehouseHeaders });
   assert.equal(warehouseLotsResponse.status, 200);
   assert.equal((await warehouseLotsResponse.json())[0].tamano, 'BT1');
+
+  const coordinatorSeedMovement = await fetch(`${baseUrl}/api/almacen/movimientos`, {
+    method: 'POST',
+    headers: coordinatorHeaders,
+    body: JSON.stringify({
+      tipo: 'Entrada',
+      items: [{ producto_id: 7, lote: 'L-1', tamano: 'BT1', cantidad: 10, categoria: 'Agroquímicos' }]
+    })
+  });
+  assert.equal(coordinatorSeedMovement.status, 403);
+  assert.equal(movementInsertAttempted, false);
 
   const adminSeedMovement = await fetch(`${baseUrl}/api/almacen/movimientos`, {
     method: 'POST',
@@ -372,8 +386,8 @@ test('TDD-TC-120: Kardex, lotes y movimientos manuales preservan la exclusividad
       items: [{ producto_id: 7, lote: 'L-1', tamano: 'BT1', cantidad: 10, categoria: 'Agroquímicos' }]
     })
   });
-  assert.equal(adminSeedMovement.status, 403);
-  assert.equal(movementInsertAttempted, false);
+  assert.equal(adminSeedMovement.status, 201);
+  assert.equal(movementInsertAttempted, true);
 });
 
 test('TDD-TC-113/119: las rutas reales preservan reservas e idempotencia de transiciones', async t => {
@@ -630,4 +644,80 @@ test('TDD-TC-132: getQuotePayload y debouncedLiveCalculation limpian descuento, 
   const appJs = fs.readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8');
   assert.match(appJs, /const isContadoCondition = condition === 'CONTADO';/);
   assert.match(appJs, /slider\.max = 0;/);
+});
+
+
+test('TDD-TC-133: Administrador registra salidas manuales de semilla en Almacén mientras Solicitudes permanece exclusivo de Almacén', async t => {
+  const jwt = require('jsonwebtoken');
+  const db = require('../db');
+  const { app } = require('../server');
+  const originalGet = db.get;
+  const originalAll = db.all;
+  const originalTransaction = db.transaction;
+
+  db.get = async query => String(query).includes('FROM asesores')
+    ? {
+        id: 1,
+        nombre: 'Administrador',
+        usuario: 'admin-chg029',
+        nivel_rol: 'Administrador',
+        email: 'admin@example.test',
+        activo: 1,
+        session_version: 1
+      }
+    : null;
+  db.all = async () => [];
+  db.transaction = async callback => callback({
+    get: async query => {
+      const sql = String(query);
+      if (sql.includes('FROM productos WHERE id')) {
+        return { id: 7, producto: 'Calamar - Vitala', tipo_categoria: 'Híbrido', activo: 1 };
+      }
+      if (sql.includes('FROM almacen_movimientos')) {
+        return { cantidad: 50, existencias_resultantes: 50, existencias: 50 };
+      }
+      if (sql.includes('FROM cotizacion_reservas')) {
+        return { cantidad: 0 };
+      }
+      return { existencias_resultantes: 50 };
+    },
+    all: async () => [],
+    run: async () => ({ id: 301, changes: 1 })
+  });
+  t.after(() => {
+    db.get = originalGet;
+    db.all = originalAll;
+    db.transaction = originalTransaction;
+  });
+
+  const server = http.createServer(app);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const adminHeaders = {
+    Authorization: `Bearer ${jwt.sign({ id: 1, nivel_rol: 'Administrador', session_version: 1 }, process.env.JWT_SECRET)}`,
+    'Content-Type': 'application/json'
+  };
+
+  const exitResponse = await fetch(`${baseUrl}/api/almacen/movimientos`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      tipo: 'Salida',
+      items: [{ producto_id: 7, lote: '2X2AD129L', tamano: 'BT1', cantidad: 10, categoria: 'Semilla' }]
+    })
+  });
+  assert.equal(exitResponse.status, 201);
+
+  const requestsResponse = await fetch(`${baseUrl}/api/almacen/solicitudes`, {
+    headers: adminHeaders
+  });
+  assert.equal(requestsResponse.status, 403);
+
+  const appJs = fs.readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8');
+  assert.match(appJs, /tabRequests\.style\.display = user\.nivel_rol === 'Almacen' \? 'block' : 'none'/);
+  assert.match(appJs, /\['Almacen', 'Administrador'\]\.includes\(user(?:\?)?\.nivel_rol\)/);
 });

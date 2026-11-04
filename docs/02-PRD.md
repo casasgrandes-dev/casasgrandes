@@ -583,3 +583,10 @@ Cada clave tiene un límite por minuto. Clave ausente, desconocida y revocada co
 ### PRD-FR-063 — Persistencia resiliente y saneamiento de payload para Crédito y Apartado
 
 `POST /api/cotizaciones` debe permitir registrar solicitudes en condición `CREDITO` y `APARTADO` sin fallar ante esquemas PostgreSQL heredados que conserven `NOT NULL` en `cotizacion_detalles.temporada_id` o que hayan omitido columnas aditivas de `CHG-025`, asegurando la migración mediante `db.ensureQuotationsSchema()`, reintentando una vez ante errores PostgreSQL `42703` o `23502`, y garantizando que el frontend envíe `descuento_aplicado = 0`, `precio_propuesto = null` y `slider.max = 0` cuando la condición no es `CONTADO`.
+
+
+## Incremento CHG-029 — Movimientos manuales de semilla en Almacén para Administrador
+
+### PRD-FR-064 — Movimientos manuales de semilla por tamaño para Administrador manteniendo Solicitudes exclusivo de Almacén
+
+Los roles `Almacen` y `Administrador` pueden seleccionar productos de categoría `Híbrido` y `Semilla` en el formulario de movimientos manuales de Almacén (`Entrada` y `Salida`), elegir el calibre (`.move-item-tamano`), consultar lotes por tamaño (`GET /api/almacen/lotes-disponibles?tamano=...` y `GET /api/almacen/lotes-historial?tamano=...`) y registrar el movimiento en `POST /api/almacen/movimientos` validando tamaño y disponibilidad libre de reservas activas. La pestaña `Solicitudes de Almacén` (`#tab-solicitudes`), `GET /api/almacen/solicitudes` y `POST /api/almacen/solicitudes/:id/asignaciones` permanecen exclusivas para el rol `Almacen`.
