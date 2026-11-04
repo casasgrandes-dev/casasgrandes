@@ -43,7 +43,7 @@
     'showAISuggestion', 'showQuoteDetails', 'toggleAsesorActiveStatus',
     'toggleAssociatedGroup', 'toggleCatalogClientSelection',
     'toggleClientBiddable', 'toggleKanbanQuoteSelection', 'toggleLogDetail',
-    'toggleProductoActiveStatus', 'toggleAllLotsRows', 'toggleProductLotsRow', 'updateAssignBulkAction', 'viewQuoteInCRM'
+    'toggleProductoActiveStatus', 'toggleAllLotsRows', 'toggleProductLotsRow', 'stopPropagation', 'updateAssignBulkAction', 'viewQuoteInCRM'
   ]);
 
   function isAllowedHandler(value) {
