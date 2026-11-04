@@ -4134,7 +4134,8 @@ async function loadAlmacenData() {
           const catName = escapeHtml(s.tipo_categoria || '-');
           
           let lotsHtml = '';
-          if (Array.isArray(s.lotes) && s.lotes.length > 0) {
+          const hasLots = Array.isArray(s.lotes) && s.lotes.length > 0;
+          if (hasLots) {
             const lotsItems = s.lotes.map(l => {
               const tamanoInfo = l.tamano ? ` <span style="color: var(--text-light); font-size: 11px;">(${escapeHtml(l.tamano)})</span>` : '';
               const stockNum = Number(l.stock || 0).toLocaleString('es-MX', { minimumFractionDigits: 3 });
@@ -4142,9 +4143,12 @@ async function loadAlmacenData() {
             }).join('');
 
             lotsHtml = `
-              <tr class="lot-breakdown-row" style="background-color: #f8fafc; border-bottom: 1px solid var(--border);">
+              <tr id="lots-row-${s.id}" class="lot-breakdown-row" style="background-color: #f8fafc; border-bottom: 1px solid var(--border);">
                 <td colspan="4" style="padding: 6px 14px 10px 32px;">
-                  <div style="font-size: 11px; color: var(--text-light); margin-bottom: 4px; font-weight: 600;">📦 Lotes que conforman el saldo:</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 11px; color: var(--text-light); font-weight: 600;">📦 Lotes que conforman el saldo (${s.lotes.length}):</div>
+                    <button type="button" onclick="event.stopPropagation(); toggleProductLotsRow(${s.id})" style="background: none; border: none; font-size: 11px; color: var(--primary); cursor: pointer; text-decoration: underline; padding: 0;">▲ Ocultar lotes</button>
+                  </div>
                   <div style="display: flex; flex-wrap: wrap; align-items: center;">
                     ${lotsItems}
                   </div>
@@ -4153,9 +4157,20 @@ async function loadAlmacenData() {
             `;
           }
 
+          const lotBadgeBtn = hasLots
+            ? `<button type="button" id="btn-toggle-lots-${s.id}" onclick="event.stopPropagation(); toggleProductLotsRow(${s.id})" style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin-left: 8px;" title="Ver o contraer desglose de lotes">
+                 📦 ${s.lotes.length} ${s.lotes.length === 1 ? 'lote' : 'lotes'} <span id="arrow-lots-${s.id}">▼</span>
+               </button>`
+            : '';
+
           return `
             <tr class="product-stock-row" ${canAdjustStock ? `onclick="openStockAdjustmentModal(${s.id})" title="Editar existencias físicas de ${prodName}"` : ''} style="${isLow ? 'background-color: #fff5f5;' : ''}${canAdjustStock ? ' cursor: pointer;' : ''}">
-              <td><strong>${prodName}</strong></td>
+              <td>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span><strong>${prodName}</strong></span>
+                  ${lotBadgeBtn}
+                </div>
+              </td>
               <td>${catName}</td>
               <td style="text-align: right; font-weight: 600; ${isLow ? 'color: var(--danger);' : ''}">${qtyFormatted}</td>
               <td>${statusBadge}</td>
@@ -4189,6 +4204,31 @@ async function loadAlmacenData() {
     console.warn('Failed to load auxiliary controls:', err);
   });
 }
+
+window.toggleProductLotsRow = function(productId) {
+  const row = document.getElementById(`lots-row-${productId}`);
+  const arrow = document.getElementById(`arrow-lots-${productId}`);
+  if (!row) return;
+  const isHidden = row.style.display === 'none';
+  row.style.display = isHidden ? '' : 'none';
+  if (arrow) {
+    arrow.textContent = isHidden ? '▼' : '▶';
+  }
+};
+
+window.toggleAllLotsRows = function() {
+  const rows = document.querySelectorAll('.lot-breakdown-row');
+  if (rows.length === 0) return;
+  const anyVisible = Array.from(rows).some(r => r.style.display !== 'none');
+  const targetDisplay = anyVisible ? 'none' : '';
+  const arrowText = anyVisible ? '▶' : '▼';
+  rows.forEach(r => {
+    r.style.display = targetDisplay;
+  });
+  document.querySelectorAll('[id^="arrow-lots-"]').forEach(a => {
+    a.textContent = arrowText;
+  });
+};
 
 window.openStockAdjustmentModal = function(productId) {
   if (user?.nivel_rol !== 'Administrador') return;

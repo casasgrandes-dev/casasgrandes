@@ -38,12 +38,12 @@
     'openAdminDecisionModal', 'openBidForm', 'openCompletePlanModal',
     'openEditAsesorModal', 'openEditCicloModal', 'openEditCuentaClaveModal',
     'openEditGlobalMetaModal', 'openEditMetaModal', 'openEditPlanModal',
-    'openEditProductoModal', 'processBidDecision', 'querySelector',
+    'openEditProductoModal', 'openStockAdjustmentModal', 'processBidDecision', 'querySelector',
     'recalculateEditQuoteTotal', 'removeEditQuoteItemRow', 'removeQuoteItemRow',
     'showAISuggestion', 'showQuoteDetails', 'toggleAsesorActiveStatus',
     'toggleAssociatedGroup', 'toggleCatalogClientSelection',
     'toggleClientBiddable', 'toggleKanbanQuoteSelection', 'toggleLogDetail',
-    'toggleProductoActiveStatus', 'updateAssignBulkAction', 'viewQuoteInCRM'
+    'toggleProductoActiveStatus', 'toggleAllLotsRows', 'toggleProductLotsRow', 'updateAssignBulkAction', 'viewQuoteInCRM'
   ]);
 
   function isAllowedHandler(value) {
