@@ -2296,6 +2296,12 @@ app.put('/api/cotizaciones/:id', authenticateToken, async (req, res) => {
 // WAREHOUSE & INVENTORY ENDPOINTS
 // -------------------------------------------------------------
 
+function isSeedCategory(cat) {
+  if (!cat) return false;
+  const c = String(cat).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return c === 'hibrido' || c === 'semilla';
+}
+
 app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
   try {
     const existencias = await db.all(`
@@ -2313,7 +2319,7 @@ app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
     `);
 
     // Los tamaños y lotes son información operativa exclusiva del rol Almacén.
-    const lotsRows = req.user.nivel_rol === 'Almacen'
+    const lotsRows = (req.user.nivel_rol === 'Almacen' || req.user.nivel_rol === 'Administrador')
       ? await db.all(`
           SELECT producto_id, lote, tamano,
                  (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) AS stock
@@ -2340,7 +2346,7 @@ app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
 
     for (const item of existencias) {
       item.existencias = Math.round((Number(item.existencias) || 0) * 1000) / 1000;
-      if (req.user.nivel_rol === 'Almacen') {
+      if (req.user.nivel_rol === 'Almacen' || req.user.nivel_rol === 'Administrador') {
         item.lotes = lotsByProduct.get(Number(item.id)) || [];
       }
     }
@@ -2509,7 +2515,7 @@ app.post('/api/almacen/existencias/:productoId/ajuste', authenticateToken, async
         };
       }
 
-      const category = product.tipo_categoria === 'Híbrido' || product.tipo_categoria === 'Semilla'
+      const category = isSeedCategory(product.tipo_categoria)
         ? 'Semilla'
         : 'Agroquímicos';
       await tx.run(`
@@ -2601,7 +2607,7 @@ app.post('/api/almacen/movimientos', authenticateToken, async (req, res) => {
         throw new Error(`Producto #${item.producto_id} no encontrado${indexLabel}`);
       }
 
-      const isSeed = item.categoria === 'Semilla' || prod.tipo_categoria === 'Híbrido' || prod.tipo_categoria === 'Semilla';
+      const isSeed = item.categoria === 'Semilla' || isSeedCategory(prod.tipo_categoria);
       if (isSeed && !['Almacen', 'Administrador'].includes(req.user.nivel_rol)) {
         const error = new Error('Solo Almacén puede registrar movimientos manuales de semilla por tamaño.');
         error.statusCode = 403;
@@ -3302,7 +3308,7 @@ app.get('/api/seguimiento/dashboard', authenticateToken, requireSeguimientoAcces
       inventoryValuationMxn += val;
       inventoryUnitsTotal += stock;
 
-      const catKey = (item.tipo_categoria === 'Híbrido' || item.tipo_categoria === 'Semilla')
+      const catKey = isSeedCategory(item.tipo_categoria)
         ? 'Semilla'
         : (item.tipo_categoria === 'Fertilizante' ? 'Fertilizante' : 'Agroquímico');
 

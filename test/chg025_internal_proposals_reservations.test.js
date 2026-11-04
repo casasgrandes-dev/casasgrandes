@@ -666,7 +666,16 @@ test('TDD-TC-133: Administrador registra salidas manuales de semilla en Almacén
         session_version: 1
       }
     : null;
-  db.all = async () => [];
+  db.all = async query => {
+    const sql = String(query);
+    if (sql.includes('FROM productos p')) {
+      return [{ id: 7, producto: 'Calamar - Vitala', tipo_categoria: 'Hibrido', existencias: 50 }];
+    }
+    if (sql.includes('FROM almacen_movimientos')) {
+      return [{ producto_id: 7, lote: '2X2AD129L', tamano: 'BT1', stock: 50, existencias: 50 }];
+    }
+    return [];
+  };
   db.transaction = async callback => callback({
     get: async query => {
       const sql = String(query);
@@ -701,6 +710,13 @@ test('TDD-TC-133: Administrador registra salidas manuales de semilla en Almacén
     Authorization: `Bearer ${jwt.sign({ id: 1, nivel_rol: 'Administrador', session_version: 1 }, process.env.JWT_SECRET)}`,
     'Content-Type': 'application/json'
   };
+
+  const existenciasResponse = await fetch(`${baseUrl}/api/almacen/existencias`, { headers: adminHeaders });
+  assert.equal(existenciasResponse.status, 200);
+  const existenciasBody = await existenciasResponse.json();
+  assert.equal(existenciasBody[0].lotes.length, 1);
+  assert.equal(existenciasBody[0].lotes[0].lote, '2X2AD129L');
+  assert.equal(existenciasBody[0].lotes[0].tamano, 'BT1');
 
   const exitResponse = await fetch(`${baseUrl}/api/almacen/movimientos`, {
     method: 'POST',

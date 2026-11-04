@@ -7,10 +7,11 @@
 
 ## Comportamiento requerido
 
-1. En la interfaz de Almacén (`public/js/app.js`), los roles `Almacen` y `Administrador` pueden visualizar el filtro `#cat-btn-semilla`, seleccionar productos de categoría `Híbrido` y `Semilla` en el formulario de movimientos manuales (`populateMovementItemProducts`), y elegir el calibre en el selector `.move-item-tamano` (`updateMovementItemTamanos` / `getSizesForProduct`).
-2. En el backend (`server.js`), `GET /api/almacen/lotes-disponibles` y `GET /api/almacen/lotes-historial` permiten el parámetro `tamano` tanto a `Almacen` como a `Administrador`, rechazando con `403` a cualquier otro rol.
-3. En `POST /api/almacen/movimientos`, los roles `Almacen` y `Administrador` pueden registrar entradas y salidas manuales de productos `Híbrido` o `Semilla` siempre que proporcionen un `tamano` válido y, en salidas, no excedan la disponibilidad libre de reservas activas por calibre. Cualquier otro rol (como `Coordinador` o `Director`) continúa recibiendo `403` al intentar registrar movimientos manuales de semilla.
-4. La bandeja `#tab-solicitudes`, `GET /api/almacen/solicitudes` y `POST /api/almacen/solicitudes/:id/asignaciones` se mantienen exclusivas para el rol `Almacen` (`403` para `Administrador` y demás roles).
+1. En la interfaz de Almacén (`public/js/app.js`), los roles `Almacen` y `Administrador` pueden visualizar el filtro `#cat-btn-semilla`, seleccionar productos de categoría `Híbrido` y `Semilla` (con normalización diacrítica ante variantes como `Hibrido`) en el formulario de movimientos manuales (`populateMovementItemProducts`), y elegir el calibre en el selector `.move-item-tamano` (`updateMovementItemTamanos` / `getSizesForProduct`).
+2. En el backend (`server.js`), `GET /api/almacen/existencias` entrega el desglose de lotes físicos (`item.lotes`) a los roles `Almacen` y `Administrador`, permitiendo visualizar en la tabla de existencias los lotes que conforman el saldo neto por producto.
+3. En el backend (`server.js`), `GET /api/almacen/lotes-disponibles` y `GET /api/almacen/lotes-historial` permiten el parámetro `tamano` tanto a `Almacen` como a `Administrador`, rechazando con `403` a cualquier otro rol.
+4. En `POST /api/almacen/movimientos`, los roles `Almacen` y `Administrador` pueden registrar entradas y salidas manuales de productos `Híbrido` o `Semilla` siempre que proporcionen un `tamano` válido y, en salidas, no excedan la disponibilidad libre de reservas activas por calibre. Cualquier otro rol (como `Coordinador` o `Director`) continúa recibiendo `403` al intentar registrar movimientos manuales de semilla.
+5. La bandeja `#tab-solicitudes`, `GET /api/almacen/solicitudes` y `POST /api/almacen/solicitudes/:id/asignaciones` se mantienen exclusivas para el rol `Almacen` (`403` para `Administrador` y demás roles).
 
 ## Límites y exclusiones
 

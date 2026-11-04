@@ -125,12 +125,15 @@ async function initSchema() {
         AND tipo_categoria = 'Híbrido'
     `);
 
+    // Normalize unaccented Hibrido to official Híbrido
+    await pool.query("UPDATE productos SET tipo_categoria = 'Híbrido' WHERE LOWER(tipo_categoria) = 'hibrido'");
+
     // Standardize the official 10 seed sizes for corn hybrids
     const standardSeedSizes = 'BT1, BT2, BT3, BW1, BW2, PT1, PT2, PT3, PW1, PW2';
     await pool.query(`
       UPDATE productos 
       SET tamanos = $1 
-      WHERE (tipo_categoria = 'Híbrido' OR tipo_categoria = 'Semilla')
+      WHERE (tipo_categoria ILIKE 'h%brido' OR tipo_categoria = 'Semilla')
         AND (
           UPPER(producto) LIKE '%A-7573%' 
           OR UPPER(producto) LIKE '%HIPOP%' 
@@ -142,7 +145,7 @@ async function initSchema() {
     await pool.query(`
       UPDATE almacen_movimientos 
       SET categoria = 'Semilla' 
-      WHERE categoria = 'Híbrido' 
+      WHERE categoria ILIKE 'h%brido' 
          OR producto_id IN (SELECT id FROM productos WHERE tipo_categoria = 'Híbrido' OR tipo_categoria = 'Semilla')
     `);
     await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS prospecto_id INTEGER');

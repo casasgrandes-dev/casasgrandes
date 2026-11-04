@@ -3387,6 +3387,12 @@ function updateMovementItemBadges() {
   });
 }
 
+function isSeedCategory(cat) {
+  if (!cat) return false;
+  const c = String(cat).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return c === 'hibrido' || c === 'semilla';
+}
+
 function populateMovementItemProducts(row, selectedProdId = null) {
   const selectProd = row.querySelector('.move-item-prod');
   if (!selectProd) return;
@@ -3395,12 +3401,12 @@ function populateMovementItemProducts(row, selectedProdId = null) {
   const prods = Array.isArray(allProducts) ? allProducts : [];
   const eligibleProducts = prods
     .filter(p => p.activo === 1)
-    .filter(p => ['Almacen', 'Administrador'].includes(user?.nivel_rol) || (p.tipo_categoria !== 'Híbrido' && p.tipo_categoria !== 'Semilla'));
+    .filter(p => ['Almacen', 'Administrador'].includes(user?.nivel_rol) || !isSeedCategory(p.tipo_categoria));
   const filtered = eligibleProducts.filter(p => {
     if (activeCategory === 'Semilla') {
-      return p.tipo_categoria === 'Híbrido' || p.tipo_categoria === 'Semilla';
+      return isSeedCategory(p.tipo_categoria);
     } else if (activeCategory === 'Agroquímicos') {
-      return p.tipo_categoria !== 'Híbrido' && p.tipo_categoria !== 'Semilla';
+      return !isSeedCategory(p.tipo_categoria);
     }
     return true;
   });
@@ -3426,7 +3432,7 @@ function updateMovementItemTamanos(row) {
   const prods = Array.isArray(allProducts) ? allProducts : [];
   const prodObj = prods.find(p => p.id === prodId);
 
-  const isSeed = prodObj && (prodObj.tipo_categoria === 'Híbrido' || prodObj.tipo_categoria === 'Semilla');
+  const isSeed = prodObj && isSeedCategory(prodObj.tipo_categoria);
   if (isSeed && ['Almacen', 'Administrador'].includes(user?.nivel_rol)) {
     tamanoGroup.style.display = 'block';
     const sizes = typeof getSizesForProduct === 'function' ? getSizesForProduct(prodObj) : [];
@@ -3795,9 +3801,9 @@ function populateWarehouseProductControls() {
   if (moveProdSelect) {
     const filtered = allProducts.filter(p => p.activo === 1).filter(p => {
       if (activeCategory === 'Semilla') {
-        return p.tipo_categoria === 'Híbrido' || p.tipo_categoria === 'Semilla';
+        return isSeedCategory(p.tipo_categoria);
       } else {
-        return p.tipo_categoria !== 'Híbrido' && p.tipo_categoria !== 'Semilla';
+        return !isSeedCategory(p.tipo_categoria);
       }
     });
     // Fallback: if category filter leaves no products, show all active
@@ -3817,6 +3823,10 @@ function populateWarehouseProductControls() {
     filterSelect.innerHTML = '<option value="">Todos los productos</option>' + optionsHtml;
     filterSelect.value = selectedFilterProduct;
   }
+  document.querySelectorAll('#movement-items-list .movement-item-row').forEach(row => {
+    const select = row.querySelector('.move-item-prod');
+    populateMovementItemProducts(row, select ? select.value : null);
+  });
 }
 
 function getSizesForProduct(productOrName) {
@@ -3839,7 +3849,7 @@ function getSizesForProduct(productOrName) {
       .map(s => s.trim())
       .filter(Boolean);
   }
-  if (prodObj && (prodObj.tipo_categoria === 'Híbrido' || prodObj.tipo_categoria === 'Semilla')) {
+  if (prodObj && isSeedCategory(prodObj.tipo_categoria)) {
     return ['BT1', 'BT2', 'BT3', 'BW1', 'BW2', 'PT1', 'PT2', 'PT3', 'PW1', 'PW2'];
   }
 
@@ -4092,6 +4102,10 @@ async function loadAlmacenData() {
       const pRes = await fetch(`${API_URL}/api/productos`, { headers: getHeaders() });
       if (pRes.ok) {
         allProducts = await pRes.json();
+        document.querySelectorAll('#movement-items-list .movement-item-row').forEach(row => {
+          const select = row.querySelector('.move-item-prod');
+          populateMovementItemProducts(row, select ? select.value : null);
+        });
       }
     }
   } catch (err) {
@@ -4263,7 +4277,7 @@ document.getElementById('add-movement-form').addEventListener('submit', async (e
     }
 
     const prodObj = (allProducts || []).find(p => p.id === prodId) || (allAdminProductos || []).find(p => p.id === prodId);
-    const isSeed = prodObj?.tipo_categoria === 'Híbrido' || prodObj?.tipo_categoria === 'Semilla';
+    const isSeed = isSeedCategory(prodObj?.tipo_categoria);
 
     const selectTamano = row.querySelector('.move-item-tamano');
     const inputTamanoCustom = row.querySelector('.move-item-tamano-custom');
