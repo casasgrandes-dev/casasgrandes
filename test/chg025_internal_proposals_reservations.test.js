@@ -642,8 +642,12 @@ test('TDD-TC-131: POST /api/cotizaciones crea solicitudes CREDITO y APARTADO con
 
 test('TDD-TC-132: getQuotePayload y debouncedLiveCalculation limpian descuento, precio propuesto y slider.max fuera de CONTADO', () => {
   const appJs = fs.readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8');
+  const indexHtml = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
   assert.match(appJs, /const isContadoCondition = condition === 'CONTADO';/);
   assert.match(appJs, /slider\.max = 0;/);
+  assert.match(indexHtml, /<form id="quotation-form" novalidate>/);
+  assert.doesNotMatch(indexHtml, /<select id="quote-temporada"[^>]*required/);
+  assert.doesNotMatch(indexHtml, /<select id="quote-ciclo"[^>]*required/);
 });
 
 
