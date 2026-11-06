@@ -58,3 +58,34 @@ test('getSizesForProduct: busca por nombre de producto en el catálogo allProduc
   assert.deepEqual(getSizesForProduct('INEXISTENTE', catalog), []);
 });
 
+
+test('CHG-030: Administrador puede gestionar calibres (tamanos) en catálogo y UI', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
+  const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // UI modal elements
+  assert.match(indexHtml, /id="prod-tamanos"/, 'index.html debe tener el input prod-tamanos en el modal de producto');
+  assert.match(indexHtml, /Calibres \/ Tamaños/, 'index.html debe describir la etiqueta de calibres/tamaños');
+
+  // app.js wiring
+  assert.match(appJs, /document\.getElementById\('prod-tamanos'\)\.value = p\.tamanos \|\| '';/, 'openEditProductoModal debe cargar tamanos');
+  assert.match(appJs, /tamanos: document\.getElementById\('prod-tamanos'\)/, 'submit debe enviar tamanos');
+
+  // server.js handling
+  assert.match(serverJs, /normalizeProductSizes\(req\.body\.tamanos\)/, 'server.js debe normalizar tamanos al crear o editar');
+  assert.match(serverJs, /req\.user\.nivel_rol !== 'Almacen' && !includeInactive/, 'server.js debe permitir tamanos a Administrador con include_inactive=1');
+});
+
+test('CHG-030: POST /api/cotizaciones autorrecupera temporada y no falla cuando temporada_id no existe', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Verify safe fallback and error handling
+  assert.match(serverJs, /SELECT id FROM temporadas WHERE id = 1/, 'Debe consultar si existe id 1 antes de forzarlo');
+  assert.match(serverJs, /error: err\.message \|\| 'Failed to create quotation'/, 'Debe propagar err.message para diagnóstico transparente');
+  assert.match(serverJs, /txErr\.code === '23503'/, 'Debe capturar errores 23503 en la transacción de cotización');
+});

@@ -5430,7 +5430,10 @@ async function loadAdminProductos() {
       const scaleBadge = p.descontar === 1 ? 'badge-success' : 'badge-warning';
       tbody.innerHTML += `
         <tr style="${p.activo === 0 ? 'background-color: #f8fafc; opacity: 0.75;' : ''}">
-          <td><strong>${p.producto}</strong></td>
+          <td>
+            <strong>${p.producto}</strong>
+            ${p.tamanos ? `<small style="display: block; color: var(--text-light); font-size: 11px; margin-top: 2px;">Calibres: ${escapeHtml(p.tamanos)}</small>` : ''}
+          </td>
           <td>${p.tipo_categoria}</td>
           <td style="text-align: right; font-weight: 600;">$${p.list_price_mxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
           <td style="text-align: right;">${baseUsd}</td>
@@ -5596,6 +5599,7 @@ if (document.getElementById('btn-open-producto-modal')) {
     document.getElementById('producto-modal-title').textContent = 'Registrar Nuevo Producto';
     document.getElementById('producto-submit-btn').textContent = 'Registrar Producto';
     document.getElementById('prod-status').value = '1';
+    if (document.getElementById('prod-tamanos')) document.getElementById('prod-tamanos').value = '';
     populateProductCategorySelect();
     
     // Show stock field for new entries
@@ -5613,6 +5617,7 @@ window.openEditProductoModal = function(id) {
   document.getElementById('prod-key').value = p.clave || '';
   document.getElementById('prod-name').value = p.producto;
   document.getElementById('prod-description').value = p.descripcion || '';
+  if (document.getElementById('prod-tamanos')) document.getElementById('prod-tamanos').value = p.tamanos || '';
   populateProductCategorySelect(p.tipo_categoria);
   document.getElementById('prod-list-price').value = p.list_price_mxn;
   document.getElementById('prod-base-usd').value = p.base_usd;
@@ -5645,7 +5650,8 @@ document.getElementById('add-producto-form').addEventListener('submit', async (e
     objetivo_anual: Number(document.getElementById('prod-objective').value) || 0,
     descontar: document.getElementById('prod-descontar').checked,
     activo: document.getElementById('prod-status').value === '1',
-    stock_inicial: id ? 0 : Number(document.getElementById('prod-stock-inicial').value) || 0.0
+    stock_inicial: id ? 0 : Number(document.getElementById('prod-stock-inicial').value) || 0.0,
+    tamanos: document.getElementById('prod-tamanos') ? document.getElementById('prod-tamanos').value.trim() : null
   };
   
   const url = id ? `${API_URL}/api/productos/${id}` : `${API_URL}/api/productos`;
