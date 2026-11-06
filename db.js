@@ -50,30 +50,39 @@ async function ensureWarehouseMovementsSchema() {
 
 // Helper to guarantee all required columns and constraints on cotizaciones and cotizacion_detalles
 async function ensureQuotationsSchema() {
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS prospecto_id INTEGER');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_aplicado INTEGER NOT NULL DEFAULT 0');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0');
-  await pool.query('ALTER TABLE cotizaciones ALTER COLUMN nucle_porcentaje TYPE NUMERIC(5,2) USING ROUND(nucle_porcentaje::numeric, 2)');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS descuento_nucle_mxn NUMERIC(14,2) NOT NULL DEFAULT 0');
-  await pool.query("ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'");
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada INTEGER NOT NULL DEFAULT 0');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado INTEGER NOT NULL DEFAULT 0');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada_en TIMESTAMP');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado_en TIMESTAMP');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_en TIMESTAMP');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_por_id INTEGER REFERENCES asesores(id)');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT');
-  await pool.query('ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tamano TEXT');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_catalogo_unitario NUMERIC(14,2)');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_mensual_unitario NUMERIC(14,2)');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_mensual_unitario NUMERIC(14,2)');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tope_descuento_unitario NUMERIC(14,2)');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_asesor_unitario NUMERIC(14,2)');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_nucle_unitario NUMERIC(14,2) NOT NULL DEFAULT 0');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT');
-  await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)');
-  await pool.query('ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL');
+  const statements = [
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS prospecto_id INTEGER',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_aplicado INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0',
+    'ALTER TABLE cotizaciones ALTER COLUMN nucle_porcentaje TYPE NUMERIC(5,2) USING ROUND(nucle_porcentaje::numeric, 2)',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS descuento_nucle_mxn NUMERIC(14,2) NOT NULL DEFAULT 0',
+    "ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'",
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada_en TIMESTAMP',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado_en TIMESTAMP',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_en TIMESTAMP',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_por_id INTEGER REFERENCES asesores(id)',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tamano TEXT',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_catalogo_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_mensual_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_mensual_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tope_descuento_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_asesor_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_nucle_unitario NUMERIC(14,2) NOT NULL DEFAULT 0',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL'
+  ];
+  for (const sql of statements) {
+    try {
+      await pool.query(sql);
+    } catch (_err) {
+      // Non-fatal per-statement fallback: ensures failure on one legacy column never blocks critical columns like flujo_version
+    }
+  }
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS temporadas (
@@ -109,7 +118,7 @@ async function initSchema() {
   try {
     const tableCheck = await pool.query(`
       SELECT count(*) as cnt FROM information_schema.tables 
-      WHERE table_schema = current_schema() AND table_name IN ('clientes', 'asesores', 'productos', 'cotizaciones', 'cotizacion_detalles', 'almacen_movimientos')
+      WHERE (table_schema = 'public' OR table_schema = current_schema()) AND table_name IN ('clientes', 'asesores', 'productos', 'cotizaciones', 'cotizacion_detalles', 'almacen_movimientos')
     `);
     if (parseInt(tableCheck.rows[0]?.cnt || '0', 10) < 6) {
       initSchemaPromise = null;
