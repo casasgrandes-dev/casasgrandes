@@ -43,6 +43,7 @@ const {
   validateSizeAssignments
 } = require('./utils/commercialFlow');
 const { applyNucleDiscount, validateNuclePercentage } = require('./utils/nuclePricing');
+const { normalizeProductSizes } = require('./utils/productos');
 const { createHealthHandlers, requestContextMiddleware } = require('./utils/observability');
 const { createGracefulShutdown } = require('./utils/serverLifecycle');
 
@@ -282,7 +283,7 @@ app.get('/api/productos', authenticateToken, async (req, res) => {
     }
     query += ' ORDER BY activo DESC, tipo_categoria DESC, producto ASC';
     const rows = await db.all(query, params);
-    if (req.user.nivel_rol !== 'Almacen') {
+    if (req.user.nivel_rol !== 'Almacen' && !includeInactive) {
       for (const row of rows) delete row.tamanos;
     }
     res.json(rows);
@@ -317,6 +318,7 @@ app.post('/api/productos', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: 'A product with this key already exists' });
       }
     }
+    const normalizedSizes = normalizeProductSizes(req.body.tamanos);
     const result = await client.query(`
       INSERT INTO productos (producto, clave, descripcion, tipo_categoria, list_price_mxn, base_usd, descuento_fijo_quimicos, objetivo_anual, descontar, activo, tamanos)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10) RETURNING id
@@ -330,7 +332,7 @@ app.post('/api/productos', authenticateToken, async (req, res) => {
       Number(descuento_fijo_quimicos) || 0.0,
       Number(objetivo_anual) || 0,
       descontar ? 1 : 0,
-      null
+      normalizedSizes || null
     ]);
     
     const newProdId = result.rows[0].id;
@@ -395,6 +397,7 @@ app.put('/api/productos/:id', authenticateToken, async (req, res) => {
     }
     
     const activeVal = (activo === undefined || activo === null) ? prod.activo : (activo ? 1 : 0);
+    const nextTamanos = req.body.tamanos !== undefined ? (normalizeProductSizes(req.body.tamanos) || null) : (prod.tamanos || null);
     
     await client.query(`
       UPDATE productos
@@ -411,7 +414,7 @@ app.put('/api/productos/:id', authenticateToken, async (req, res) => {
       Number(objetivo_anual) || 0,
       descontar ? 1 : 0,
       activeVal,
-      prod.tamanos || null,
+      nextTamanos,
       id
     ]);
     if (Number(prod.list_price_mxn) !== Number(list_price_mxn)) {
@@ -1073,9 +1076,13 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     const keyAccountDesc = keyAccount ? keyAccount.descuento_mxn : 0.0;
     let activeSeason = { id: null, actividad: 'No aplica' };
     if (condiciones_pago === 'CONTADO') {
-      activeSeason = temporada_id
-        ? await db.get('SELECT * FROM temporadas WHERE id = ?', [temporada_id])
-        : await db.get("SELECT * FROM temporadas WHERE actividad = 'Temporada (Precio Lleno)'");
+      if (Number.isInteger(Number(temporada_id)) && Number(temporada_id) > 0) {
+        activeSeason = await db.get('SELECT * FROM temporadas WHERE id = ?', [Number(temporada_id)]);
+      }
+      if (!activeSeason || !activeSeason.id) {
+        activeSeason = await db.get("SELECT * FROM temporadas WHERE actividad = 'Temporada (Precio Lleno)'")
+          || await db.get('SELECT * FROM temporadas ORDER BY id ASC LIMIT 1');
+      }
       if (!activeSeason) return res.status(400).json({ error: 'Temporada no disponible.' });
     }
 
@@ -1161,9 +1168,20 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     // Status logic: quotations start as 'Pendiente' until authorized by Admin/Coordinator
     const defaultStatus = 'Pendiente';
     
-    const resolvedTemporadaId = condiciones_pago === 'CONTADO'
-      ? (temporada_id || activeSeason.id)
-      : (Number.isInteger(Number(temporada_id)) && Number(temporada_id) > 0 ? Number(temporada_id) : 1);
+    let resolvedTemporadaId = null;
+    if (condiciones_pago === 'CONTADO') {
+      resolvedTemporadaId = activeSeason?.id || (Number.isInteger(Number(temporada_id)) && Number(temporada_id) > 0 ? Number(temporada_id) : null);
+    } else {
+      if (Number.isInteger(Number(temporada_id)) && Number(temporada_id) > 0) {
+        const seasonRow = await db.get('SELECT id FROM temporadas WHERE id = ?', [Number(temporada_id)]);
+        if (seasonRow) resolvedTemporadaId = seasonRow.id;
+      }
+      if (!resolvedTemporadaId) {
+        const defaultSeason = await db.get('SELECT id FROM temporadas WHERE id = 1')
+          || await db.get('SELECT id FROM temporadas ORDER BY id ASC LIMIT 1');
+        resolvedTemporadaId = defaultSeason?.id || 1;
+      }
+    }
     const executeQuotationTransaction = async () => await db.transaction(async tx => {
       let lockedPlan = directSalePlan;
       let lockedProspect = null;
@@ -1274,8 +1292,10 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       const isQuotationsSchemaError = txErr && (
         txErr.code === '42703' ||
         txErr.code === '23502' ||
+        txErr.code === '23503' ||
         /column .* of relation "(cotizaciones|cotizacion_detalles)" does not exist/i.test(String(txErr.message || '')) ||
-        /null value in column "temporada_id" of relation "cotizacion_detalles"/i.test(String(txErr.message || ''))
+        /null value in column "temporada_id" of relation "cotizacion_detalles"/i.test(String(txErr.message || '')) ||
+        /violates foreign key constraint .*temporada_id/i.test(String(txErr.message || ''))
       );
       if (isQuotationsSchemaError && typeof db.ensureQuotationsSchema === 'function') {
         await db.ensureQuotationsSchema();
@@ -1300,8 +1320,8 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     if (err instanceof PricingDomainError) {
       return res.status(err.statusCode || 400).json({ error: pricingErrorMessage(err), code: err.code });
     }
-    console.error(err);
-    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to create quotation' });
+    console.error('Quotation creation error:', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to create quotation' });
   }
 });
 

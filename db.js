@@ -74,6 +74,26 @@ async function ensureQuotationsSchema() {
   await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT');
   await pool.query('ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)');
   await pool.query('ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL');
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS temporadas (
+        id SERIAL PRIMARY KEY,
+        actividad TEXT UNIQUE NOT NULL,
+        fecha_inicio TEXT,
+        fecha_fin TEXT,
+        descuento_percentage REAL NOT NULL DEFAULT 0.0,
+        estado_operacion TEXT NOT NULL DEFAULT 'Sumar',
+        notas TEXT
+      )
+    `);
+    await pool.query(`
+      INSERT INTO temporadas (actividad, descuento_percentage, estado_operacion)
+      VALUES ('Temporada (Precio Lleno)', 0.0, 'Sumar')
+      ON CONFLICT (actividad) DO NOTHING
+    `);
+  } catch (_tempErr) {
+    // Non-fatal if table exists with different legacy columns
+  }
 }
 
 let botSchemaSql = null;
