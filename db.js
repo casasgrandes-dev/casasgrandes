@@ -51,12 +51,12 @@ async function ensureWarehouseMovementsSchema() {
 // Helper to guarantee all required columns and constraints on cotizaciones and cotizacion_detalles
 async function ensureQuotationsSchema() {
   const statements = [
+    "ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'",
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS prospecto_id INTEGER',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_aplicado INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0',
     'ALTER TABLE cotizaciones ALTER COLUMN nucle_porcentaje TYPE NUMERIC(5,2) USING ROUND(nucle_porcentaje::numeric, 2)',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS descuento_nucle_mxn NUMERIC(14,2) NOT NULL DEFAULT 0',
-    "ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'",
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS venta_confirmada_en TIMESTAMP',
@@ -116,11 +116,21 @@ async function ensureBotSchema() {
 // Database auto-migration / schema updates
 async function initSchema() {
   try {
+    try {
+      await ensureQuotationsSchema();
+    } catch (_qErr) {
+      // Non-fatal if tables do not exist yet during empty database setup
+    }
+    try {
+      await ensureWarehouseMovementsSchema();
+    } catch (_wErr) {
+      // Non-fatal if tables do not exist yet during empty database setup
+    }
     const tableCheck = await pool.query(`
       SELECT count(*) as cnt FROM information_schema.tables 
       WHERE (table_schema = 'public' OR table_schema = current_schema()) AND table_name IN ('clientes', 'asesores', 'productos', 'cotizaciones', 'cotizacion_detalles', 'almacen_movimientos')
     `);
-    if (parseInt(tableCheck.rows[0]?.cnt || '0', 10) < 6) {
+    if (parseInt(tableCheck.rows[0]?.cnt || '0', 10) < 5) {
       initSchemaPromise = null;
       return;
     }
