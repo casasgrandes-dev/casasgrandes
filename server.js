@@ -1218,26 +1218,12 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
         }
       }
 
-      let cotId;
-      try {
-        const result = await tx.run(`
-          INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn, flujo_version)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025')
-          RETURNING id
-        `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
-        cotId = result.id;
-      } catch (insertErr) {
-        if (/flujo_version.*does not exist/i.test(String(insertErr.message || '')) || insertErr.code === '42703') {
-          const result = await tx.run(`
-            INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id
-          `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
-          cotId = result.id;
-        } else {
-          throw insertErr;
-        }
-      }
+      const result = await tx.run(`
+        INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn, flujo_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025')
+        RETURNING id
+      `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
+      const cotId = result.id;
 
       for (const row of calculatedItems) {
         await tx.run(`
