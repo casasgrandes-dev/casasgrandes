@@ -1182,6 +1182,7 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
         resolvedTemporadaId = defaultSeason?.id || 1;
       }
     }
+    let useFlujoVersion = true;
     const executeQuotationTransaction = async () => await db.transaction(async tx => {
       let lockedPlan = directSalePlan;
       let lockedProspect = null;
@@ -1218,11 +1219,20 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
         }
       }
 
-      const result = await tx.run(`
-        INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn, flujo_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025')
-        RETURNING id
-      `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
+      let result;
+      if (useFlujoVersion) {
+        result = await tx.run(`
+          INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn, flujo_version)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025')
+          RETURNING id
+        `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
+      } else {
+        result = await tx.run(`
+          INSERT INTO cotizaciones (fecha_creacion, cliente_id, asesor_id, ciclo_agricola, condiciones_pago, folio_cotizacion, mes, estatus, total_mxn, anticipo_apartado, notas, financiera, prospecto_id, nucle_aplicado, nucle_porcentaje, descuento_nucle_mxn)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id
+        `, [now, cliente_id, quoteAdvisorId, ciclo_agricola, condiciones_pago, prefix, mesShort, defaultStatus, grandTotal, anticipoApartado, notas, financiera || null, prospectId, nucleApplied ? 1 : 0, nuclePercentage, nucleDiscountTotal]);
+      }
       const cotId = result.id;
 
       for (const row of calculatedItems) {
@@ -1299,7 +1309,20 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       );
       if (isQuotationsSchemaError && typeof db.ensureQuotationsSchema === 'function') {
         await db.ensureQuotationsSchema();
-        persisted = await executeQuotationTransaction();
+        try {
+          persisted = await executeQuotationTransaction();
+        } catch (retryErr) {
+          const isFlujoVersionError = retryErr && (
+            retryErr.code === '42703' ||
+            /column "flujo_version" of relation "cotizaciones" does not exist/i.test(String(retryErr.message || ''))
+          );
+          if (isFlujoVersionError) {
+            useFlujoVersion = false;
+            persisted = await executeQuotationTransaction();
+          } else {
+            throw retryErr;
+          }
+        }
       } else {
         throw txErr;
       }
@@ -1326,7 +1349,17 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
 });
 
 async function getAttachmentQuoteAccess(quoteId, user) {
-  const quote = await db.get('SELECT id, asesor_id, condiciones_pago, flujo_version FROM cotizaciones WHERE id = ?', [quoteId]);
+  let quote;
+  try {
+    quote = await db.get('SELECT id, asesor_id, condiciones_pago, flujo_version FROM cotizaciones WHERE id = ?', [quoteId]);
+  } catch (err) {
+    if (err.code === '42703' || /column "flujo_version" does not exist/i.test(String(err.message || ''))) {
+      quote = await db.get('SELECT id, asesor_id, condiciones_pago FROM cotizaciones WHERE id = ?', [quoteId]);
+      if (quote) quote.flujo_version = 'LEGACY';
+    } else {
+      throw err;
+    }
+  }
   if (!quote) return { error: 'Cotización no encontrada.', status: 404 };
   if (user.nivel_rol === 'Asesor' && quote.asesor_id !== user.id) {
     return { error: 'No tienes acceso a los anexos de esta cotización.', status: 403 };
@@ -1639,15 +1672,24 @@ app.put('/api/cotizaciones/:id/confirmaciones-contado', authenticateToken, requi
 
 app.get('/api/almacen/solicitudes', authenticateToken, requireRoles('Almacen'), async (req, res) => {
   try {
-    const rows = await db.all(`
-      SELECT q.id, q.folio_cotizacion, q.condiciones_pago, q.almacen_estado,
-             q.fecha_creacion, c.nombre AS cliente_nombre
-      FROM cotizaciones q
-      JOIN clientes c ON c.id = q.cliente_id
-      WHERE q.flujo_version = 'CHG-025'
-        AND q.almacen_estado IN ('PENDIENTE', 'RESERVADA')
-      ORDER BY q.fecha_creacion ASC, q.id ASC
-    `);
+    let rows;
+    try {
+      rows = await db.all(`
+        SELECT q.id, q.folio_cotizacion, q.condiciones_pago, q.almacen_estado,
+               q.fecha_creacion, c.nombre AS cliente_nombre
+        FROM cotizaciones q
+        JOIN clientes c ON c.id = q.cliente_id
+        WHERE q.flujo_version = 'CHG-025'
+          AND q.almacen_estado IN ('PENDIENTE', 'RESERVADA')
+        ORDER BY q.fecha_creacion ASC, q.id ASC
+      `);
+    } catch (dbErr) {
+      if (dbErr.code === '42703' || /column .*flujo_version.* does not exist/i.test(String(dbErr.message || ''))) {
+        rows = [];
+      } else {
+        throw dbErr;
+      }
+    }
     for (const row of rows) {
       row.items = await db.all(`
         SELECT d.id, d.producto_id, d.cantidad_ordenada, p.producto AS producto_nombre
