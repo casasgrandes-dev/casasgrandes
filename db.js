@@ -81,6 +81,7 @@ async function ensureQuotationsSchema() {
       await pool.query(sql);
     } catch (_err) {
       // Non-fatal per-statement fallback: ensures failure on one legacy column never blocks critical columns like flujo_version
+      console.warn(`[ensureQuotationsSchema] DDL warning (${_err.code || 'ERR'}): ${_err.message} for SQL: "${sql}"`);
     }
   }
   try {
@@ -102,6 +103,29 @@ async function ensureQuotationsSchema() {
     `);
   } catch (_tempErr) {
     // Non-fatal if table exists with different legacy columns
+  }
+}
+
+let cachedHasFlujoVersion = null;
+async function hasCotizacionesColumn(columnName) {
+  if (columnName === 'flujo_version' && cachedHasFlujoVersion === true) {
+    return true;
+  }
+  try {
+    const res = await pool.query(`
+      SELECT 1 FROM information_schema.columns 
+      WHERE (table_schema = 'public' OR table_schema = current_schema()) 
+        AND table_name = 'cotizaciones' 
+        AND column_name = $1 LIMIT 1
+    `, [columnName]);
+    const exists = Boolean(res.rows && res.rows.length > 0);
+    if (columnName === 'flujo_version' && exists) {
+      cachedHasFlujoVersion = true;
+    }
+    return exists;
+  } catch (err) {
+    console.warn(`[hasCotizacionesColumn] Warning checking column ${columnName}:`, err.message);
+    return false;
   }
 }
 
@@ -791,6 +815,7 @@ module.exports = {
   initSchema: ensureSchema,
   ensureWarehouseMovementsSchema,
   ensureQuotationsSchema,
+  hasCotizacionesColumn,
   ensureBotSchema,
   checkReadiness,
   close
