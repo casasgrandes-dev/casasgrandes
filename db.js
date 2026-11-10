@@ -104,29 +104,35 @@ async function ensureQuotationsSchema() {
   } catch (_tempErr) {
     // Non-fatal if table exists with different legacy columns
   }
+  tableColumnCache.clear();
 }
 
-let cachedHasFlujoVersion = null;
-async function hasCotizacionesColumn(columnName) {
-  if (columnName === 'flujo_version' && cachedHasFlujoVersion === true) {
-    return true;
+const tableColumnCache = new Map();
+async function hasTableColumn(tableName, columnName) {
+  const key = `${tableName}.${columnName}`.toLowerCase();
+  if (tableColumnCache.has(key)) {
+    return tableColumnCache.get(key);
   }
   try {
     const res = await pool.query(`
       SELECT 1 FROM information_schema.columns 
       WHERE (table_schema = 'public' OR table_schema = current_schema()) 
-        AND table_name = 'cotizaciones' 
-        AND column_name = $1 LIMIT 1
-    `, [columnName]);
+        AND LOWER(table_name) = LOWER($1) 
+        AND LOWER(column_name) = LOWER($2) LIMIT 1
+    `, [tableName, columnName]);
     const exists = Boolean(res.rows && res.rows.length > 0);
-    if (columnName === 'flujo_version' && exists) {
-      cachedHasFlujoVersion = true;
+    if (exists) {
+      tableColumnCache.set(key, true);
     }
     return exists;
   } catch (err) {
-    console.warn(`[hasCotizacionesColumn] Warning checking column ${columnName}:`, err.message);
+    console.warn(`[hasTableColumn] Warning checking ${key}:`, err.message);
     return false;
   }
+}
+
+async function hasCotizacionesColumn(columnName) {
+  return hasTableColumn('cotizaciones', columnName);
 }
 
 let botSchemaSql = null;
@@ -816,6 +822,7 @@ module.exports = {
   ensureWarehouseMovementsSchema,
   ensureQuotationsSchema,
   hasCotizacionesColumn,
+  hasTableColumn,
   ensureBotSchema,
   checkReadiness,
   close
