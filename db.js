@@ -52,6 +52,16 @@ async function ensureWarehouseMovementsSchema() {
 async function ensureQuotationsSchema() {
   const statements = [
     "ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS flujo_version TEXT NOT NULL DEFAULT 'LEGACY'",
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tamano TEXT',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_catalogo_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_mensual_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_mensual_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tope_descuento_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_asesor_unitario NUMERIC(14,2)',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_nucle_unitario NUMERIC(14,2) NOT NULL DEFAULT 0',
+    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT',
+    'ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS prospecto_id INTEGER',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_aplicado INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS nucle_porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0',
@@ -64,22 +74,12 @@ async function ensureQuotationsSchema() {
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_en TIMESTAMP',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_por_id INTEGER REFERENCES asesores(id)',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT',
-    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tamano TEXT',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_catalogo_unitario NUMERIC(14,2)',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_mensual_unitario NUMERIC(14,2)',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_mensual_unitario NUMERIC(14,2)',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS tope_descuento_unitario NUMERIC(14,2)',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_asesor_unitario NUMERIC(14,2)',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS descuento_nucle_unitario NUMERIC(14,2) NOT NULL DEFAULT 0',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS contrato_precio_version TEXT',
-    'ALTER TABLE cotizacion_detalles ADD COLUMN IF NOT EXISTS precio_propuesto_unitario NUMERIC(14,2)',
-    'ALTER TABLE cotizacion_detalles ALTER COLUMN temporada_id DROP NOT NULL'
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT'
   ];
   for (const sql of statements) {
     try {
       await pool.query(sql);
-    } catch (_err) {
+} catch (_err) {
       // Non-fatal per-statement fallback: ensures failure on one legacy column never blocks critical columns like flujo_version
       console.warn(`[ensureQuotationsSchema] DDL warning (${_err.code || 'ERR'}): ${_err.message} for SQL: "${sql}"`);
     }

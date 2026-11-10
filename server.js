@@ -1183,6 +1183,24 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       }
     }
     let useFlujoVersion = true;
+    let usePrecioPropuesto = true;
+
+    const getAvailableColumns = async (tableName) => {
+      try {
+        const rows = await db.all(
+          "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+          [tableName]
+        );
+        if (rows && rows.length > 0) {
+          return new Set(rows.map(r => String(r.column_name).toLowerCase()));
+        }
+      } catch (_e) {
+        // Fallback when information_schema is not queryable or in unit test mocks
+      }
+      return null;
+    };
+
+    let detailCols = await getAvailableColumns('cotizacion_detalles');
     const executeQuotationTransaction = async () => await db.transaction(async tx => {
       let lockedPlan = directSalePlan;
       let lockedProspect = null;
@@ -1236,15 +1254,14 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       const cotId = result.id;
 
       for (const row of calculatedItems) {
-        await tx.run(`
-          INSERT INTO cotizacion_detalles (
-            cotizacion_id, producto_id, temporada_id, cantidad_ordenada, cantidad_entregada,
-            precio_lista_unitario, precio_neto_unitario, subtotal_mxn,
-            precio_catalogo_unitario, precio_mensual_unitario, descuento_mensual_unitario,
-            tope_descuento_unitario, descuento_asesor_unitario, descuento_nucle_unitario,
-            contrato_precio_version, tamano, precio_propuesto_unitario
-          ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CHG-025', NULL, ?)
-        `, [
+        const detailColsInInsert = [
+          'cotizacion_id', 'producto_id', 'temporada_id', 'cantidad_ordenada', 'cantidad_entregada',
+          'precio_lista_unitario', 'precio_neto_unitario', 'subtotal_mxn',
+          'precio_catalogo_unitario', 'precio_mensual_unitario', 'descuento_mensual_unitario',
+          'tope_descuento_unitario', 'descuento_asesor_unitario', 'descuento_nucle_unitario',
+          'contrato_precio_version', 'tamano'
+        ];
+        const detailValsInInsert = [
           cotId,
           row.item.producto_id,
           resolvedTemporadaId,
@@ -1257,9 +1274,20 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
           condiciones_pago === 'CONTADO' ? row.monthlyPricing.embeddedDiscountMxn : 0,
           condiciones_pago === 'CONTADO' ? row.monthlyPricing.totalPromotionCapMxn : 0,
           row.discountApplied,
-          row.nucleDiscount,
-          condiciones_pago === 'CONTADO' ? row.item.precio_propuesto : null
-        ]);
+          row.nucleDiscount
+        ];
+        let valPlaceholders = '?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'CHG-025\', NULL';
+
+        if (usePrecioPropuesto && (!detailCols || detailCols.has('precio_propuesto_unitario'))) {
+          detailColsInInsert.push('precio_propuesto_unitario');
+          detailValsInInsert.push(condiciones_pago === 'CONTADO' ? row.item.precio_propuesto : null);
+          valPlaceholders += ', ?';
+        }
+
+        await tx.run(`
+          INSERT INTO cotizacion_detalles (${detailColsInInsert.join(', ')})
+          VALUES (${valPlaceholders})
+        `, detailValsInInsert);
       }
 
       let persistedProspectId = prospectId;
@@ -1310,14 +1338,21 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
       if (isQuotationsSchemaError && typeof db.ensureQuotationsSchema === 'function') {
         await db.ensureQuotationsSchema();
         try {
+          detailCols = await getAvailableColumns('cotizacion_detalles');
           persisted = await executeQuotationTransaction();
         } catch (retryErr) {
           const isFlujoVersionError = retryErr && (
             retryErr.code === '42703' ||
             /column "flujo_version" of relation "cotizaciones" does not exist/i.test(String(retryErr.message || ''))
           );
-          if (isFlujoVersionError) {
-            useFlujoVersion = false;
+          const isPrecioPropuestoError = retryErr && (
+            retryErr.code === '42703' ||
+            /column "precio_propuesto_unitario" of relation "cotizacion_detalles" does not exist/i.test(String(retryErr.message || ''))
+          );
+          if (isFlujoVersionError || isPrecioPropuestoError) {
+            if (isFlujoVersionError) useFlujoVersion = false;
+            if (isPrecioPropuestoError) usePrecioPropuesto = false;
+            detailCols = await getAvailableColumns('cotizacion_detalles');
             persisted = await executeQuotationTransaction();
           } else {
             throw retryErr;
