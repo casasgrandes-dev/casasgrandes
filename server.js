@@ -1188,7 +1188,7 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     const getAvailableColumns = async (tableName) => {
       try {
         const rows = await db.all(
-          "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+          "SELECT column_name FROM information_schema.columns WHERE (table_schema = 'public' OR table_schema = current_schema()) AND lower(table_name) = lower(?)",
           [tableName]
         );
         if (rows && rows.length > 0) {
@@ -1278,7 +1278,9 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
         ];
         let valPlaceholders = '?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'CHG-025\', NULL';
 
-        if (usePrecioPropuesto && (!detailCols || detailCols.has('precio_propuesto_unitario'))) {
+        const detailColsHasPropuesto = detailCols ? detailCols.has('precio_propuesto_unitario') : null;
+        const includePrecioPropuesto = usePrecioPropuesto && (detailColsHasPropuesto !== false);
+        if (includePrecioPropuesto) {
           detailColsInInsert.push('precio_propuesto_unitario');
           detailValsInInsert.push(condiciones_pago === 'CONTADO' ? row.item.precio_propuesto : null);
           valPlaceholders += ', ?';
@@ -1324,43 +1326,48 @@ app.post('/api/cotizaciones', authenticateToken, async (req, res) => {
     });
     
     let persisted;
-    try {
-      persisted = await executeQuotationTransaction();
-    } catch (txErr) {
-      const isQuotationsSchemaError = txErr && (
-        txErr.code === '42703' ||
-        txErr.code === '23502' ||
-        txErr.code === '23503' ||
-        /column .* of relation "(cotizaciones|cotizacion_detalles)" does not exist/i.test(String(txErr.message || '')) ||
-        /null value in column "temporada_id" of relation "cotizacion_detalles"/i.test(String(txErr.message || '')) ||
-        /violates foreign key constraint .*temporada_id/i.test(String(txErr.message || ''))
-      );
-      if (isQuotationsSchemaError && typeof db.ensureQuotationsSchema === 'function') {
-        await db.ensureQuotationsSchema();
-        try {
-          detailCols = await getAvailableColumns('cotizacion_detalles');
-          persisted = await executeQuotationTransaction();
-        } catch (retryErr) {
-          const isFlujoVersionError = retryErr && (
-            retryErr.code === '42703' ||
-            /column "flujo_version" of relation "cotizaciones" does not exist/i.test(String(retryErr.message || ''))
-          );
-          const isPrecioPropuestoError = retryErr && (
-            retryErr.code === '42703' ||
-            /column "precio_propuesto_unitario" of relation "cotizacion_detalles" does not exist/i.test(String(retryErr.message || ''))
-          );
-          if (isFlujoVersionError || isPrecioPropuestoError) {
-            if (isFlujoVersionError) useFlujoVersion = false;
-            if (isPrecioPropuestoError) usePrecioPropuesto = false;
-            detailCols = await getAvailableColumns('cotizacion_detalles');
-            persisted = await executeQuotationTransaction();
-          } else {
-            throw retryErr;
-          }
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        persisted = await executeQuotationTransaction();
+        break;
+      } catch (txErr) {
+        lastError = txErr;
+        const errMsg = String(txErr?.message || '');
+        const isFlujoVersionError = txErr?.code === '42703' && /flujo_version/i.test(errMsg)
+          || /column "flujo_version" of relation "cotizaciones" does not exist/i.test(errMsg);
+        const isPrecioPropuestoError = txErr?.code === '42703' && /precio_propuesto_unitario/i.test(errMsg)
+          || /column "precio_propuesto_unitario" of relation "cotizacion_detalles" does not exist/i.test(errMsg);
+        const isQuotationsSchemaError = txErr && (
+          txErr.code === '42703' ||
+          txErr.code === '23502' ||
+          txErr.code === '23503' ||
+          /column .* of relation "(cotizaciones|cotizacion_detalles)" does not exist/i.test(errMsg) ||
+          /null value in column "temporada_id" of relation "cotizacion_detalles"/i.test(errMsg) ||
+          /violates foreign key constraint .*temporada_id/i.test(errMsg)
+        );
+
+        if (!isQuotationsSchemaError && !isFlujoVersionError && !isPrecioPropuestoError) {
+          throw txErr;
         }
-      } else {
-        throw txErr;
+
+        if (attempt === 0 && typeof db.ensureQuotationsSchema === 'function') {
+          try {
+            await db.ensureQuotationsSchema();
+          } catch (_e) {}
+        }
+
+        if (isFlujoVersionError || /flujo_version/i.test(errMsg)) {
+          useFlujoVersion = false;
+        }
+        if (isPrecioPropuestoError || /precio_propuesto_unitario/i.test(errMsg)) {
+          usePrecioPropuesto = false;
+        }
+        detailCols = await getAvailableColumns('cotizacion_detalles');
       }
+    }
+    if (!persisted) {
+      throw lastError;
     }
     res.status(201).json({
       id: persisted.cotId,
