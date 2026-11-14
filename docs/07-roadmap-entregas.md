@@ -220,3 +220,20 @@
 | 2 | Escribir escenario BDD y pruebas TDD en rojo | BDD-SC-121, TDD-TC-120, TDD-TC-133 | Fallo inicial controlado | completed |
 | 3 | Habilitar movimientos manuales de semilla y filtro de lotes por tamaño para Administrador manteniendo Solicitudes exclusivo de Almacén | SDD-SEC-013 | Pruebas unitarias, HTTP y BDD en verde | completed |
 | 4 | Ejecutar verificación completa de CI | EVD-025 | Lint, tests, BDD, contrato, cobertura y auditoría en verde | completed |
+
+## Incremento 30 — CHG-030
+
+- Objetivo: OBJ-022
+- Requisitos: PRD-FR-058, PRD-FR-065
+- Decisión: ADR-016
+- Escenarios: BDD-SC-126..128
+- Pruebas: TDD-TC-135..138
+- Gate de salida: CI local en verde; merge y despliegue sujetos a aprobación explícita del propietario.
+
+| Orden | Tarea | IDs | Evidencia esperada | Estado |
+|---|---|---|---|---|
+| 1 | Documentar paquete CHG-030 y trazabilidad | CHG-030, PRD-FR-065 | `docs/cambios/CHG-030/` y `docs/02..09` | completed |
+| 2 | Escribir escenario BDD y pruebas TDD en rojo | BDD-SC-126..128, TDD-TC-135..138 | Fallo inicial controlado | pending |
+| 3 | Implementar controles en modal de detalle e interactividad en Kanban | SDD-CMP-048, PRD-FR-065 | Pruebas unitarias, HTTP y BDD en verde | pending |
+| 4 | Ejecutar verificación completa de CI | EVD-026 | Lint, tests, BDD, contrato, cobertura y auditoría en verde | pending |
+

@@ -378,3 +378,17 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
 - Calibración: Riesgo R2 (Permisos RBAC de movimientos manuales de semilla en Almacén para Administrador conservando Solicitudes de Almacén exclusivo del rol Almacén).
 - Fase Roja: `node --test test/chg025_internal_proposals_reservations.test.js` y `npm run test:bdd` fallaron antes de la implementación en `TDD-TC-120`, `TDD-TC-133` y `BDD-SC-121`.
 - Fase Verde y Regresión: `npm run lint`, `npm test`, `npm run test:bdd`, `npm run test:contract`, `npm run lint:openapi`, `npm run test:coverage` y `npm run audit:deps` ejecutados con código de salida 0.
+
+## Trazabilidad CHG-030
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-058, PRD-FR-065 | ADR-016, SDD-CMP-048 | BDD-SC-126..128 | TDD-TC-135..138 | `public/index.html`, `public/js/app.js` | EVD-026 | propuesta-implementada |
+
+## EVD-026 — Evidencia local CHG-030
+
+- Fecha: 2026-11-14.
+- Calibración: Riesgo R2 (Autorización comercial y confirmación de pedidos desde modal y tablero).
+- Fase Roja: `npm run test:unit` y `features/chg030_decision_modal.feature` fallan antes de incorporar los controles en el modal.
+- Fase Verde y Regresión: Pruebas unitarias, BDD y suite completa ejecutadas con código de salida 0.
+

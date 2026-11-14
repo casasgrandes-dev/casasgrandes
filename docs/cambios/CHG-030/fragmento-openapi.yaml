@@ -1,0 +1,5 @@
+# No aplica fragmento OpenAPI para CHG-030
+# Este cambio no introduce ni modifica operaciones del contrato OpenAPI /api/v1/bot (docs/api/bot-v1.yaml).
+# Los endpoints consumidos son los ya existentes en el API web interna:
+# - PUT /api/cotizaciones/:id/decision
+# - PUT /api/cotizaciones/:id/confirmaciones-contado

@@ -822,3 +822,34 @@ Implementados en la rama. El detalle está en `docs/cambios/CHG-027/casos-tdd.md
 - Archivo: `test/chg025_internal_proposals_reservations.test.js`.
 - Verifica que `Administrador` pueda filtrar `GET /api/almacen/lotes-disponibles` por `tamano` (`200`) y registrar entradas/salidas manuales de semilla con `tamano` en `POST /api/almacen/movimientos` (`201`), que `Coordinador` reciba `403` en ambas operaciones, que `public/js/app.js` habilite `#cat-btn-semilla`, productos `Híbrido`/`Semilla` y selector de calibres en el formulario de movimientos para `['Almacen', 'Administrador']`, y que `GET /api/almacen/solicitudes` y `#tab-solicitudes` permanezcan exclusivos de `Almacen` (`403` para `Administrador`).
 - Estado: passed-local.
+
+## Casos TDD del Incremento CHG-030
+
+### TDD-TC-135 — Exposición de botones de decisión comercial en Detalle de Cotización para Crédito y Apartado CHG-025
+
+- Cubre: BDD-SC-126, PRD-FR-058, PRD-FR-065.
+- Archivo: `test/chg030_decision_modal.test.js`.
+- Verifica que al abrir `showQuoteDetails()` para una cotización `CHG-025` en estatus pendiente con condición `CREDITO` o `APARTADO`, si el rol es `Administrador` o `Coordinador`, se muestren los botones `btn-authorize-quote` y `btn-reject-commercial-request`, y se oculten si el rol es `Asesor`.
+- Estado: pending.
+
+### TDD-TC-136 — Ejecución de decisión comercial (Autorizar / Rechazar) desde el modal invocando `/api/cotizaciones/:id/decision`
+
+- Cubre: BDD-SC-126, BDD-SC-127, PRD-FR-058, PRD-FR-065.
+- Archivo: `test/chg030_decision_modal.test.js`.
+- Verifica que al pulsar "Autorizar" en el modal de detalle para una cotización CHG-025 se confirme y se invoque `PUT /api/cotizaciones/:id/decision` con `{ decision: 'AUTORIZAR' }`, cerrando el modal y refrescando el tablero; y al pulsar "Rechazar" se capture el motivo y se invoque `{ decision: 'RECHAZAR', motivo }`.
+- Estado: pending.
+
+### TDD-TC-137 — Doble confirmación de Contado CHG-025 en el Detalle de Cotización
+
+- Cubre: BDD-SC-128, PRD-FR-055, PRD-FR-065.
+- Archivo: `test/chg030_decision_modal.test.js`.
+- Verifica que en propuestas `CONTADO` de CHG-025 se expongan en el modal los controles para confirmar Venta y Cobro de forma independiente para roles Administrador y Coordinador, reflejando el estado actual (`quote.venta_confirmada`, `quote.cobro_confirmado`) e invocando `PUT /api/cotizaciones/:id/confirmaciones-contado`.
+- Estado: pending.
+
+### TDD-TC-138 — Aislamiento de eventos de clic en tarjeta Kanban para evitar colisión en dispositivos táctiles
+
+- Cubre: BDD-SC-126, PRD-FR-065.
+- Archivo: `test/chg030_decision_modal.test.js`.
+- Comprueba que en la columna `Borrador` de `renderKanbanBoard()`, el manejador de clic de la tarjeta comprueba `e.target.closest('button')` o `e.target.closest('input')` para evitar abrir el modal al presionar los botones de acción rápida en la tarjeta.
+- Estado: pending.
+
