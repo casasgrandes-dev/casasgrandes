@@ -1281,7 +1281,10 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
       card.className = 'kanban-card';
       card.style.cursor = 'pointer';
       card.style.borderLeft = '4px solid var(--warning)';
-      card.addEventListener('click', () => showQuoteDetails(q.id));
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('button') || e.target.closest('input')) return;
+        showQuoteDetails(q.id);
+      });
       const itemsSummary = (q.items || [])
         .map(item => `${item.producto_nombre.split(' ')[0]} (x${item.cantidad_ordenada || item.cantidad || 0})`)
         .join(', ') || 'Sin productos';
@@ -1703,18 +1706,68 @@ window.showQuoteDetails = async function(quoteId) {
     const hasAdminAuthorizationPermission = user.nivel_rol === 'Administrador';
     const isOwner = quote.asesor_id === user.id;
 
-    // Only an administrator can authorize a pending quotation.
+    // Decision, authorization & confirmation buttons
     const authBtn = document.getElementById('btn-authorize-quote');
+    const rejectBtn = document.getElementById('btn-reject-commercial-request');
+    const cashSaleBtn = document.getElementById('btn-confirm-cash-sale');
+    const cashPaymentBtn = document.getElementById('btn-confirm-cash-payment');
     const isChg025 = quote.flujo_version === 'CHG-025';
-    if (isBorrador && hasAdminAuthorizationPermission && !isChg025) {
+    const condition = normalizedQuoteCondition(quote.condiciones_pago);
+
+    if (isBorrador && canManageSalesFlow() && isChg025 && ['CREDITO', 'APARTADO'].includes(condition)) {
+      authBtn.style.display = 'inline-flex';
+      authBtn.onclick = async () => {
+        if (confirm(`¿Está seguro que desea autorizar la solicitud ${quote.folio_cotizacion}?`)) {
+          await decideCommercialRequest(quote.id, 'AUTORIZAR');
+          closeModal('quote-detail-modal');
+        }
+      };
+      if (rejectBtn) {
+        rejectBtn.style.display = 'inline-flex';
+        rejectBtn.onclick = async () => {
+          await decideCommercialRequest(quote.id, 'RECHAZAR');
+          closeModal('quote-detail-modal');
+        };
+      }
+    } else if (isBorrador && hasAdminAuthorizationPermission && !isChg025) {
       authBtn.style.display = 'inline-flex';
       authBtn.onclick = async () => {
         if (confirm(`¿Está seguro que desea autorizar la cotización con Folio ${quote.folio_cotizacion}?`)) {
           await authorizeQuote(quote.id);
         }
       };
+      if (rejectBtn) rejectBtn.style.display = 'none';
     } else {
       authBtn.style.display = 'none';
+      if (rejectBtn) rejectBtn.style.display = 'none';
+    }
+
+    if (isBorrador && canManageSalesFlow() && isChg025 && condition === 'CONTADO') {
+      if (cashSaleBtn) {
+        cashSaleBtn.style.display = 'inline-flex';
+        cashSaleBtn.disabled = Number(quote.venta_confirmada) === 1;
+        cashSaleBtn.textContent = Number(quote.venta_confirmada) === 1 ? '✓ Venta confirmada' : '✓ Confirmar Venta';
+        cashSaleBtn.onclick = async () => {
+          await confirmCashProposal(quote.id, 'venta');
+          quote.venta_confirmada = 1;
+          cashSaleBtn.disabled = true;
+          cashSaleBtn.textContent = '✓ Venta confirmada';
+        };
+      }
+      if (cashPaymentBtn) {
+        cashPaymentBtn.style.display = 'inline-flex';
+        cashPaymentBtn.disabled = Number(quote.cobro_confirmado) === 1;
+        cashPaymentBtn.textContent = Number(quote.cobro_confirmado) === 1 ? '✓ Cobro confirmado' : '✓ Confirmar Cobro';
+        cashPaymentBtn.onclick = async () => {
+          await confirmCashProposal(quote.id, 'cobro');
+          quote.cobro_confirmado = 1;
+          cashPaymentBtn.disabled = true;
+          cashPaymentBtn.textContent = '✓ Cobro confirmado';
+        };
+      }
+    } else {
+      if (cashSaleBtn) cashSaleBtn.style.display = 'none';
+      if (cashPaymentBtn) cashPaymentBtn.style.display = 'none';
     }
 
     // Edit button: Admin/Coordinator can edit any. Advisor can edit only their own draft quotes.

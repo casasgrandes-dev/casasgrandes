@@ -1,0 +1,3 @@
+# ADR del cambio — CHG-030
+
+No se crea un ADR nuevo. Este cambio se encuentra regido por la decisión vigente en `ADR-016` (Contratos por condición y reserva de inventario por tamaño), la cual establece que Administrador y Coordinador tienen la facultad de autorizar o rechazar solicitudes de Crédito y Apartado, y que Contado requiere doble confirmación de venta y cobro. `CHG-030` alinea la interfaz del modal "Detalle de Cotización" con dicho contrato y con los endpoints transaccionales existentes en el servidor (`PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado`), resolviendo la desconexión que impedía ejecutar la decisión desde el modal de inspección detallada.

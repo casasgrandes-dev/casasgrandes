@@ -1024,3 +1024,34 @@ BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventa
 - **Cuando** filtra lotes disponibles por tamaño (`GET /api/almacen/lotes-disponibles?producto_id=7&tamano=BT1`) y registra un movimiento manual de semilla con tamaño en `POST /api/almacen/movimientos`
 - **Entonces** la consulta de lotes responde `200` y el movimiento manual responde `201`
 - **Y** si el `Administrador` intenta consultar `GET /api/almacen/solicitudes` o asignar tamaños a un pedido en `POST /api/almacen/solicitudes/:id/asignaciones`, el servidor responde `403`.
+
+## Escenarios BDD del Incremento CHG-030
+
+### BDD-SC-126 — Autorización de solicitud de Crédito o Apartado CHG-025 desde el modal Detalle de Cotización por Administrador o Coordinador
+
+- **Dado** un usuario autenticado con rol `Administrador` o `Coordinador`
+- **Y** una solicitud `CHG-025` en estatus `Pendiente` con condición `CREDITO` o `APARTADO`
+- **Cuando** el usuario abre el modal "Detalle de Cotización"
+- **Entonces** se muestra el botón "Autorizar Cotización" y el botón "Rechazar"
+- **Cuando** confirma la autorización en el modal
+- **Entonces** la solicitud se actualiza mediante `PUT /api/cotizaciones/:id/decision` con `{ decision: 'AUTORIZAR' }`
+- **Y** su estatus cambia a `Autorizada` y `almacen_estado` a `PENDIENTE`.
+
+### BDD-SC-127 — Rechazo con captura de motivo para solicitud CHG-025 desde el modal Detalle de Cotización
+
+- **Dado** un usuario autenticado con rol `Administrador` o `Coordinador`
+- **Y** una solicitud `CHG-025` en estatus `Pendiente`
+- **Cuando** el usuario pulsa "Rechazar" en el modal de detalle e indica un motivo
+- **Entonces** la solicitud se actualiza mediante `PUT /api/cotizaciones/:id/decision` con `{ decision: 'RECHAZAR', motivo }`
+- **Y** su estatus cambia a `Rechazada`, registrando el motivo y cerrando el modal.
+
+### BDD-SC-128 — Doble confirmación independiente para Contado CHG-025 desde el modal Detalle de Cotización
+
+- **Dado** un usuario autenticado con rol `Administrador` o `Coordinador`
+- **Y** una propuesta `CHG-025` en condición `CONTADO`
+- **Cuando** el usuario abre el modal de detalle
+- **Entonces** se muestran los controles para confirmar Venta y Cobro de forma independiente
+- **Cuando** confirma la venta o el cobro
+- **Entonces** el servidor persiste la confirmación mediante `PUT /api/cotizaciones/:id/confirmaciones-contado`
+- **Y** si el usuario tiene rol `Asesor`, los controles de decisión y confirmación no se muestran.
+

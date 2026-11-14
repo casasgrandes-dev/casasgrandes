@@ -590,3 +590,10 @@ Cada clave tiene un límite por minuto. Clave ausente, desconocida y revocada co
 ### PRD-FR-064 — Movimientos manuales de semilla por tamaño para Administrador manteniendo Solicitudes exclusivo de Almacén
 
 Los roles `Almacen` y `Administrador` pueden seleccionar productos de categoría `Híbrido` y `Semilla` en el formulario de movimientos manuales de Almacén (`Entrada` y `Salida`), elegir el calibre (`.move-item-tamano`), consultar lotes por tamaño (`GET /api/almacen/lotes-disponibles?tamano=...` y `GET /api/almacen/lotes-historial?tamano=...`) y registrar el movimiento en `POST /api/almacen/movimientos` validando tamaño y disponibilidad libre de reservas activas. La pestaña `Solicitudes de Almacén` (`#tab-solicitudes`), `GET /api/almacen/solicitudes` y `POST /api/almacen/solicitudes/:id/asignaciones` permanecen exclusivas para el rol `Almacen`.
+
+## Incremento CHG-030 — Decisión comercial y doble confirmación en Detalle de Cotización
+
+### PRD-FR-065 — Decisión comercial y doble confirmación en el Detalle de Cotización y Canal de Ventas
+
+El modal de Detalle de Cotización debe permitir a los roles `Administrador` y `Coordinador` emitir la decisión comercial (`Autorizar` y `Rechazar` con captura de motivo opcional) para solicitudes `CHG-025` de condición `CREDITO` y `APARTADO` comunicándose con `PUT /api/cotizaciones/:id/decision`, así como registrar la doble confirmación independiente (`✓ Venta` y `✓ Cobro`) para condición `CONTADO` comunicándose con `PUT /api/cotizaciones/:id/confirmaciones-contado`. Los roles no autorizados (`Asesor`, `Observador`) no deben visualizar dichos controles. En el tablero Kanban, la interacción de clic en las tarjetas de la columna Prospecto/Borrador debe aislar los clics originados en botones para evitar la apertura accidental del modal en pantallas táctiles o móviles.
+
