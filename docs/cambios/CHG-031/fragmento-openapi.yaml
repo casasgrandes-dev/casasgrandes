@@ -1,0 +1,4 @@
+# Fragmento OpenAPI — CHG-031
+# Este cambio no modifica `docs/api/bot-v1.yaml` ni el API de bots `/api/v1/bot`.
+# Solo agrega resiliencia de esquema interno en `PUT /api/cotizaciones/:id/decision`
+# y `PUT /api/cotizaciones/:id/confirmaciones-contado`.

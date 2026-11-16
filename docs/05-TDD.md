@@ -853,3 +853,25 @@ Implementados en la rama. El detalle está en `docs/cambios/CHG-027/casos-tdd.md
 - Comprueba que en la columna `Borrador` de `renderKanbanBoard()`, el manejador de clic de la tarjeta comprueba `e.target.closest('button')` o `e.target.closest('input')` para evitar abrir el modal al presionar los botones de acción rápida en la tarjeta.
 - Estado: pending.
 
+
+
+### TDD-TC-139 — Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` ante error `42703`
+
+- Cubre: BDD-SC-129, PRD-FR-066.
+- Archivo: `test/chg031_decision_resilience.test.js`.
+- Verifica que ante error PostgreSQL `42703` por columna aditiva ausente (`decision_por_id`, `decision_en`, `motivo_rechazo`, `almacen_estado`), el endpoint invoca `ensureQuotationsSchema()`, adapta el `UPDATE` y responde `200`.
+- Estado: passed.
+
+### TDD-TC-140 — Resiliencia de esquema en `PUT /api/cotizaciones/:id/confirmaciones-contado` ante error `42703`
+
+- Cubre: BDD-SC-130, PRD-FR-066.
+- Archivo: `test/chg031_decision_resilience.test.js`.
+- Verifica que ante error PostgreSQL `42703` por columna aditiva ausente (`venta_confirmada_en`, `cobro_confirmado_en`, `almacen_estado`), el endpoint adapta el `UPDATE` y responde `200`.
+- Estado: passed.
+
+### TDD-TC-141 — No reintentar ni ocultar errores ajenos al esquema en `PUT /api/cotizaciones/:id/decision`
+
+- Cubre: PRD-FR-066.
+- Archivo: `test/chg031_decision_resilience.test.js`.
+- Verifica que errores de infraestructura no relacionados con columnas ausentes (por ejemplo error de conexión) devuelven `500` sin bucle de reintentos.
+- Estado: passed.
