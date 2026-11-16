@@ -1055,3 +1055,18 @@ BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventa
 - **Entonces** el servidor persiste la confirmación mediante `PUT /api/cotizaciones/:id/confirmaciones-contado`
 - **Y** si el usuario tiene rol `Asesor`, los controles de decisión y confirmación no se muestran.
 
+
+
+### BDD-SC-129 — Autorizar solicitud CHG-025 cuando falta columna aditiva en cotizaciones
+
+- **Dado** una solicitud `CHG-025` de Crédito en estatus `Pendiente`
+- **Y** una base de datos donde falta una columna aditiva (`decision_por_id` o `almacen_estado`) en `cotizaciones`
+- **Cuando** un `Administrador` o `Coordinador` decide `AUTORIZAR` mediante `PUT /api/cotizaciones/:id/decision`
+- **Entonces** el servidor recupera/adapta las columnas disponibles y responde `200` con estatus `Autorizada`.
+
+### BDD-SC-130 — Confirmar venta de Contado CHG-025 cuando falta columna de marca temporal
+
+- **Dado** una propuesta `CHG-025` de Contado en estatus `Pendiente`
+- **Y** una base de datos donde falta `venta_confirmada_en` en `cotizaciones`
+- **Cuando** un `Administrador` o `Coordinador` confirma venta mediante `PUT /api/cotizaciones/:id/confirmaciones-contado`
+- **Entonces** el servidor adapta el `UPDATE` a las columnas disponibles y responde `200`.

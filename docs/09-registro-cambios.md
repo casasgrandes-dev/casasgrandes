@@ -28,6 +28,7 @@
 | CHG-028 | 2026-11-03 | Persistencia resiliente de solicitudes de Crédito y Apartado en `POST /api/cotizaciones` (`ensureQuotationsSchema`, nulabilidad/respaldo de `temporada_id` y limpieza de payload y slider en Cotizador) | ADR-016, OBJ-022, PRD-FR-054, PRD-FR-056, PRD-FR-057, PRD-FR-063, SDD-CMP-048, SDD-DB-019 | BDD-SC-119, BDD-SC-120; TDD-TC-131, TDD-TC-132; EVD-024 | implemented-tested-local |
 | CHG-029 | 2026-11-03 | Habilitar entradas y salidas manuales de semilla con tamaño y lote en Almacén para el rol `Administrador`, manteniendo la bandeja de Solicitudes de Almacén exclusiva del rol `Almacen` | ADR-016, OBJ-022, PRD-FR-054, PRD-FR-059, PRD-FR-064, SDD-SEC-013 | BDD-SC-121; TDD-TC-120, TDD-TC-133; EVD-025 | implemented-tested-local |
 | CHG-030 | 2026-11-14 | Habilitar decisión comercial (autorizar y rechazar con motivo) y doble confirmación de Contado en el modal Detalle de Cotización para Administrador y Coordinador, aislando botones en Canal de Ventas | ADR-016, OBJ-022, PRD-FR-058, PRD-FR-065 | BDD-SC-126..128; TDD-TC-135..138; EVD-026 | propuesta-implementada |
+| CHG-031 | 2026-11-16 | Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado` ante columnas aditivas ausentes en `cotizaciones` | ADR-016, OBJ-022, PRD-FR-066 | BDD-SC-129..130; TDD-TC-139..141; EVD-027 | implemented-tested-local |
 
 ## Reglas
 

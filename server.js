@@ -1600,13 +1600,71 @@ app.get('/api/cotizaciones', authenticateToken, async (req, res) => {
   }
 });
 
+function isMissingQuotationsColumnError(error) {
+  const errMsg = String(error?.message || '');
+  return Boolean(error && (error.code === '42703' || /column .* of relation "cotizaciones" does not exist/i.test(errMsg)));
+}
+
+function extractMissingColumnName(error) {
+  const match = String(error?.message || '').match(/column\s+"([^"]+)"/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+async function getAvailableCotizacionesColumns() {
+  try {
+    const rows = await db.all(
+      'SELECT column_name FROM information_schema.columns WHERE table_name = ?',
+      ['cotizaciones']
+    );
+    if (rows && rows.length > 0) {
+      return new Set(rows.map(r => String(r.column_name).toLowerCase()));
+    }
+  } catch (_e) {
+    // Fallback when information_schema is unavailable or mocked
+  }
+  return null;
+}
+
+async function runWithCotizacionesSchemaRetry(work) {
+  const missingColumns = new Set();
+  let availableColumns = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const hasColumn = col => (!availableColumns || availableColumns.has(col)) && !missingColumns.has(col);
+      return await db.transaction(tx => work(tx, hasColumn));
+    } catch (err) {
+      lastError = err;
+      if (!isMissingQuotationsColumnError(err)) {
+        throw err;
+      }
+      if (attempt === 0 && typeof db.ensureQuotationsSchema === 'function') {
+        try {
+          await db.ensureQuotationsSchema();
+        } catch (_e) {
+          // Non-fatal: continue with adaptive column exclusion
+        }
+      }
+      const missingCol = extractMissingColumnName(err);
+      if (missingCol) {
+        missingColumns.add(missingCol);
+      }
+      availableColumns = await getAvailableCotizacionesColumns();
+      if (!missingCol && !availableColumns) {
+        throw err;
+      }
+    }
+  }
+  throw lastError;
+}
+
 app.put('/api/cotizaciones/:id/decision', authenticateToken, requireAdminOrCoordinador, async (req, res) => {
   const decision = String(req.body?.decision || '').trim().toUpperCase();
   if (!['AUTORIZAR', 'RECHAZAR'].includes(decision)) {
     return res.status(400).json({ error: 'La decisión debe ser AUTORIZAR o RECHAZAR.' });
   }
   try {
-    const outcome = await db.transaction(async tx => {
+    const outcome = await runWithCotizacionesSchemaRetry(async (tx, hasColumn) => {
       const quote = await tx.get('SELECT * FROM cotizaciones WHERE id = ? FOR UPDATE', [req.params.id]);
       if (!quote) return { status: 404, body: { error: 'Solicitud no encontrada.' } };
       let condition;
@@ -1625,19 +1683,33 @@ app.put('/api/cotizaciones/:id/decision', authenticateToken, requireAdminOrCoord
       if (!['Pendiente', 'Pendiente Autorización', 'Borrador'].includes(quote.estatus)) {
         return { status: 409, body: { error: 'La solicitud ya no está pendiente de autorización.' } };
       }
+      const setClauses = ['estatus = ?'];
+      const params = [targetStatus];
+      if (hasColumn('autorizado_por_id')) {
+        setClauses.push('autorizado_por_id = ?');
+        params.push(decision === 'AUTORIZAR' ? req.user.id : null);
+      }
+      if (hasColumn('decision_por_id')) {
+        setClauses.push('decision_por_id = ?');
+        params.push(req.user.id);
+      }
+      if (hasColumn('decision_en')) {
+        setClauses.push('decision_en = CURRENT_TIMESTAMP');
+      }
+      if (hasColumn('motivo_rechazo')) {
+        setClauses.push('motivo_rechazo = ?');
+        params.push(decision === 'RECHAZAR' ? String(req.body?.motivo || '').trim() || null : null);
+      }
+      if (hasColumn('almacen_estado')) {
+        setClauses.push('almacen_estado = ?');
+        params.push(decision === 'AUTORIZAR' ? 'PENDIENTE' : null);
+      }
+      params.push(quote.id);
       await tx.run(`
         UPDATE cotizaciones
-        SET estatus = ?, autorizado_por_id = ?, decision_por_id = ?, decision_en = CURRENT_TIMESTAMP,
-            motivo_rechazo = ?, almacen_estado = ?
+        SET ${setClauses.join(', ')}
         WHERE id = ?
-      `, [
-        targetStatus,
-        decision === 'AUTORIZAR' ? req.user.id : null,
-        req.user.id,
-        decision === 'RECHAZAR' ? String(req.body?.motivo || '').trim() || null : null,
-        decision === 'AUTORIZAR' ? 'PENDIENTE' : null,
-        quote.id
-      ]);
+      `, params);
       return { status: 200, body: { success: true, estatus: targetStatus, almacen_estado: decision === 'AUTORIZAR' ? 'PENDIENTE' : null } };
     });
     res.status(outcome.status).json(outcome.body);
@@ -1649,7 +1721,7 @@ app.put('/api/cotizaciones/:id/decision', authenticateToken, requireAdminOrCoord
 
 app.put('/api/cotizaciones/:id/confirmaciones-contado', authenticateToken, requireAdminOrCoordinador, async (req, res) => {
   try {
-    const outcome = await db.transaction(async tx => {
+    const outcome = await runWithCotizacionesSchemaRetry(async (tx, hasColumn) => {
       const quote = await tx.get('SELECT * FROM cotizaciones WHERE id = ? FOR UPDATE', [req.params.id]);
       if (!quote) return { status: 404, body: { error: 'Propuesta no encontrada.' } };
       let condition;
@@ -1679,22 +1751,28 @@ app.put('/api/cotizaciones/:id/confirmaciones-contado', authenticateToken, requi
         return { status: 409, body: { error: 'No puedes retirar venta o cobro mientras existan tamaños reservados; cancela la solicitud para liberar la reserva.' } };
       }
       const warehouseState = eligible ? (quote.almacen_estado || 'PENDIENTE') : null;
+      const setClauses = ['venta_confirmada = ?', 'cobro_confirmado = ?'];
+      const params = [saleConfirmed ? 1 : 0, paymentConfirmed ? 1 : 0];
+      if (hasColumn('venta_confirmada_en')) {
+        setClauses.push('venta_confirmada_en = CASE WHEN ? = 1 THEN COALESCE(venta_confirmada_en, CURRENT_TIMESTAMP) ELSE NULL END');
+        params.push(saleConfirmed ? 1 : 0);
+      }
+      if (hasColumn('cobro_confirmado_en')) {
+        setClauses.push('cobro_confirmado_en = CASE WHEN ? = 1 THEN COALESCE(cobro_confirmado_en, CURRENT_TIMESTAMP) ELSE NULL END');
+        params.push(paymentConfirmed ? 1 : 0);
+      }
+      if (hasColumn('almacen_estado')) {
+        setClauses.push('almacen_estado = ?');
+        params.push(warehouseState);
+      }
+      setClauses.push('estatus = ?');
+      params.push(eligible ? 'Vendido' : 'Pendiente');
+      params.push(quote.id);
       await tx.run(`
         UPDATE cotizaciones
-        SET venta_confirmada = ?, cobro_confirmado = ?,
-            venta_confirmada_en = CASE WHEN ? = 1 THEN COALESCE(venta_confirmada_en, CURRENT_TIMESTAMP) ELSE NULL END,
-            cobro_confirmado_en = CASE WHEN ? = 1 THEN COALESCE(cobro_confirmado_en, CURRENT_TIMESTAMP) ELSE NULL END,
-            almacen_estado = ?, estatus = ?
+        SET ${setClauses.join(', ')}
         WHERE id = ?
-      `, [
-        saleConfirmed ? 1 : 0,
-        paymentConfirmed ? 1 : 0,
-        saleConfirmed ? 1 : 0,
-        paymentConfirmed ? 1 : 0,
-        warehouseState,
-        eligible ? 'Vendido' : 'Pendiente',
-        quote.id
-      ]);
+      `, params);
       return {
         status: 200,
         body: {

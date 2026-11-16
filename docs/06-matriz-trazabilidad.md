@@ -392,3 +392,17 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
 - Fase Roja: `npm run test:unit` y `features/chg030_decision_modal.feature` fallan antes de incorporar los controles en el modal.
 - Fase Verde y Regresión: Pruebas unitarias, BDD y suite completa ejecutadas con código de salida 0.
 
+
+
+## Trazabilidad CHG-031
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-066 | ADR-016 | BDD-SC-129..130 | TDD-TC-139..141 | `server.js` | EVD-027 | implemented-tested-local |
+
+## EVD-027 — Evidencia local CHG-031
+
+- Fecha: 2026-11-16.
+- Calibración: Riesgo R2 (Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado`).
+- Fase Roja: `node --test test/chg031_decision_resilience.test.js` (`TDD-TC-139`, `TDD-TC-140`) y `npx cucumber-js features/chg031_decision_resilience.feature` (`BDD-SC-129`, `BDD-SC-130`) fallaron con `500 !== 200` ante `42703` antes de la implementación.
+- Fase Verde y Regresión: `npm run lint`, `npm test` (186 pass, 3 skipped sin `TEST_POSTGRES_URL`), `npm run test:bdd`, `npm run test:contract`, `npm run lint:openapi`, `npm run test:coverage` (45.42% líneas/sentencias, 63.74% ramas, 82.3% funciones) y `npm run audit:deps` ejecutados con código de salida 0.

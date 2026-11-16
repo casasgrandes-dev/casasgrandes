@@ -597,3 +597,10 @@ Los roles `Almacen` y `Administrador` pueden seleccionar productos de categoría
 
 El modal de Detalle de Cotización debe permitir a los roles `Administrador` y `Coordinador` emitir la decisión comercial (`Autorizar` y `Rechazar` con captura de motivo opcional) para solicitudes `CHG-025` de condición `CREDITO` y `APARTADO` comunicándose con `PUT /api/cotizaciones/:id/decision`, así como registrar la doble confirmación independiente (`✓ Venta` y `✓ Cobro`) para condición `CONTADO` comunicándose con `PUT /api/cotizaciones/:id/confirmaciones-contado`. Los roles no autorizados (`Asesor`, `Observador`) no deben visualizar dichos controles. En el tablero Kanban, la interacción de clic en las tarjetas de la columna Prospecto/Borrador debe aislar los clics originados en botones para evitar la apertura accidental del modal en pantallas táctiles o móviles.
 
+
+
+## Incremento CHG-031 — Resiliencia de esquema en decisión comercial y confirmaciones de Contado
+
+### PRD-FR-066 — Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado`
+
+`PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado` deben tolerar esquemas PostgreSQL donde alguna columna aditiva de `CHG-025` en `cotizaciones` (`decision_por_id`, `decision_en`, `motivo_rechazo`, `almacen_estado`, `venta_confirmada_en`, `cobro_confirmado_en`) no exista (código PostgreSQL `42703` o error de columna inexistente), ejecutando `db.ensureQuotationsSchema()` en el primer reintento y adaptando dinámicamente el `UPDATE` a las columnas disponibles.
