@@ -3193,7 +3193,7 @@ window.loadWarehouseRequests = async function() {
     }
     tbody.innerHTML = warehouseRequests.map(request => {
       const itemSummary = (request.items || []).map(item => `${escapeHtml(item.producto_nombre)} × ${Number(item.cantidad_ordenada || 0)}`).join('<br>');
-      const reservationSummary = (request.reservas || []).map(item => `${escapeHtml(item.tamano)} × ${Number(item.cantidad || 0)}`).join(', ');
+      const reservationSummary = (request.reservas || []).map(item => `${escapeHtml(item.tamano)}${item.lote ? ` (${escapeHtml(item.lote)})` : ''} × ${Number(item.cantidad || 0)}`).join(', ');
       const reserved = request.almacen_estado === 'RESERVADA';
       return `<tr>
         <td><strong>${escapeHtml(request.folio_cotizacion || '-')}</strong></td>
@@ -3221,12 +3221,17 @@ window.openWarehouseAssignment = async function(quoteId) {
     const container = document.getElementById('warehouse-assignment-items');
     container.innerHTML = (request.items || []).map(item => {
       const available = availability.find(row => Number(row.cotizacion_detalle_id) === Number(item.id));
-      const sizes = available?.tamanos || [];
-      const controls = sizes.length
-        ? sizes.map(size => `<label style="display:grid;grid-template-columns:minmax(100px,1fr) 130px;gap:10px;align-items:center;margin-top:8px;">
-            <span><strong>${escapeHtml(size.tamano)}</strong> · disponible ${Number(size.disponible).toLocaleString('es-MX')}</span>
-            <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(size.disponible)}" step="1" value="0" data-detail-id="${item.id}" data-size="${escapeHtml(size.tamano)}">
-          </label>`).join('')
+      const lots = Array.isArray(available?.lotes) && available.lotes.length > 0
+        ? available.lotes
+        : (available?.tamanos || []).map(size => ({ ...size, lote: '' }));
+      const controls = lots.length
+        ? lots.map(entry => {
+            const lotLabel = entry.lote ? ` · Lote ${escapeHtml(entry.lote)}` : ' · Sin lote';
+            return `<label style="display:grid;grid-template-columns:minmax(140px,1fr) 130px;gap:10px;align-items:center;margin-top:8px;">
+            <span><strong>${escapeHtml(entry.tamano)}</strong>${lotLabel} · disponible ${Number(entry.disponible).toLocaleString('es-MX')}</span>
+            <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(entry.disponible)}" step="1" value="0" data-detail-id="${item.id}" data-product-id="${item.producto_id}" data-size="${escapeHtml(entry.tamano)}" data-lote="${escapeHtml(entry.lote || '')}">
+          </label>`;
+          }).join('')
         : '<p style="color:var(--danger);margin:8px 0 0;">Este producto no tiene existencia disponible registrada por tamaño.</p>';
       return `<fieldset class="card" style="margin-bottom:12px;padding:14px;" data-assignment-detail="${item.id}" data-requested="${Number(item.cantidad_ordenada || 0)}">
         <legend style="font-weight:700;">${escapeHtml(item.producto_nombre)} · solicitado ${Number(item.cantidad_ordenada || 0)}</legend>
@@ -3247,7 +3252,15 @@ document.getElementById('warehouse-assignment-form')?.addEventListener('submit',
       const detailId = Number(fieldset.dataset.assignmentDetail);
       const requested = Number(fieldset.dataset.requested);
       const assignments = [...fieldset.querySelectorAll('.warehouse-size-quantity')]
-        .map(input => ({ tamano: input.dataset.size, cantidad: Number(input.value || 0) }))
+        .map(input => {
+          const item = {
+            producto_id: Number(input.dataset.productId),
+            tamano: input.dataset.size,
+            cantidad: Number(input.value || 0)
+          };
+          if (input.dataset.lote) item.lote = input.dataset.lote;
+          return item;
+        })
         .filter(item => item.cantidad > 0);
       const assigned = assignments.reduce((sum, item) => sum + item.cantidad, 0);
       if (assigned !== requested) throw new Error(`La partida ${detailId} requiere ${requested}; asignaste ${assigned}.`);

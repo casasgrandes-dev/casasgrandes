@@ -406,3 +406,17 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
 - Calibración: Riesgo R2 (Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado`).
 - Fase Roja: `node --test test/chg031_decision_resilience.test.js` (`TDD-TC-139`, `TDD-TC-140`) y `npx cucumber-js features/chg031_decision_resilience.feature` (`BDD-SC-129`, `BDD-SC-130`) fallaron con `500 !== 200` ante `42703` antes de la implementación.
 - Fase Verde y Regresión: `npm run lint`, `npm test` (186 pass, 3 skipped sin `TEST_POSTGRES_URL`), `npm run test:bdd`, `npm run test:contract`, `npm run lint:openapi`, `npm run test:coverage` (45.42% líneas/sentencias, 63.74% ramas, 82.3% funciones) y `npm run audit:deps` ejecutados con código de salida 0.
+
+
+## Trazabilidad CHG-032
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-067 | ADR-016 | BDD-SC-131..133 | TDD-TC-142..145 | `db.js`, `utils/commercialFlow.js`, `server.js`, `public/js/app.js` | EVD-028 | implemented-tested-local |
+
+## EVD-028 — Evidencia local CHG-032
+
+- Fecha: 2026-11-17.
+- Calibración: Riesgo R2 (Asignación de bolsas en Almacén por tamaño y múltiples lotes).
+- Fase Roja: `node --test test/chg032_almacen_lotes_asignacion.test.js` (`TDD-TC-142..145`) y `npx cucumber-js features/chg032_almacen_lotes_asignacion.feature` (`BDD-SC-131..133`) fallaron antes de la implementación.
+- Fase Verde y Regresión: `npm run lint`, `npm test` (190 pass, 3 skipped sin `TEST_POSTGRES_URL`), `npm run test:bdd` (32/32 escenarios), `npm run test:contract`, `npm run lint:openapi` y `npm run test:coverage` (46.49% líneas/sentencias, 63.97% ramas, 81.96% funciones) aprobados con salida 0. (`npm run audit:deps` reportó aviso transitivo preexistente de `picomatch` bajo `sqlite3`/`node-gyp`).

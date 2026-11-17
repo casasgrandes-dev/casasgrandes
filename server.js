@@ -1818,12 +1818,25 @@ app.get('/api/almacen/solicitudes', authenticateToken, requireRoles('Almacen'), 
         WHERE d.cotizacion_id = ?
         ORDER BY d.id ASC
       `, [row.id]);
-      row.reservas = await db.all(`
-        SELECT cotizacion_detalle_id, producto_id, tamano, cantidad, estado
-        FROM cotizacion_reservas
-        WHERE cotizacion_id = ? AND estado = 'ACTIVA'
-        ORDER BY id ASC
-      `, [row.id]);
+      try {
+        row.reservas = await db.all(`
+          SELECT cotizacion_detalle_id, producto_id, tamano, lote, cantidad, estado
+          FROM cotizacion_reservas
+          WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+          ORDER BY id ASC
+        `, [row.id]);
+      } catch (resErr) {
+        if (resErr.code === '42703' || /column .*lote.* does not exist/i.test(String(resErr.message || ''))) {
+          row.reservas = await db.all(`
+            SELECT cotizacion_detalle_id, producto_id, tamano, cantidad, estado
+            FROM cotizacion_reservas
+            WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+            ORDER BY id ASC
+          `, [row.id]);
+        } else {
+          throw resErr;
+        }
+      }
     }
     res.json(rows);
   } catch (error) {
@@ -1838,29 +1851,78 @@ app.get('/api/almacen/solicitudes/:id/disponibilidad', authenticateToken, requir
     if (!details.length) return res.status(404).json({ error: 'Solicitud no encontrada.' });
     const availability = [];
     for (const detail of details) {
-      const rows = await db.all(`
-        SELECT m.tamano,
-               SUM(COALESCE(m.cantidad_entrante, 0) - COALESCE(m.cantidad_saliente, 0)) AS fisico,
-               COALESCE((
-                 SELECT SUM(r.cantidad) FROM cotizacion_reservas r
-                 WHERE r.producto_id = m.producto_id
-                   AND UPPER(r.tamano) = UPPER(m.tamano)
-                   AND r.estado = 'ACTIVA'
-               ), 0) AS reservado
-        FROM almacen_movimientos m
-        WHERE m.producto_id = ? AND m.tamano IS NOT NULL AND BTRIM(m.tamano) <> ''
-        GROUP BY m.producto_id, m.tamano
-        ORDER BY m.tamano
-      `, [detail.producto_id]);
+      let rows;
+      try {
+        rows = await db.all(`
+          SELECT m.tamano,
+                 COALESCE(NULLIF(BTRIM(m.lote), ''), '') AS lote,
+                 SUM(COALESCE(m.cantidad_entrante, 0) - COALESCE(m.cantidad_saliente, 0)) AS fisico,
+                 COALESCE((
+                   SELECT SUM(r.cantidad) FROM cotizacion_reservas r
+                   WHERE r.producto_id = m.producto_id
+                     AND UPPER(r.tamano) = UPPER(m.tamano)
+                     AND UPPER(COALESCE(r.lote, '')) = UPPER(COALESCE(NULLIF(BTRIM(m.lote), ''), ''))
+                     AND r.estado = 'ACTIVA'
+                 ), 0) AS reservado
+          FROM almacen_movimientos m
+          WHERE m.producto_id = ? AND m.tamano IS NOT NULL AND BTRIM(m.tamano) <> ''
+          GROUP BY m.producto_id, m.tamano, COALESCE(NULLIF(BTRIM(m.lote), ''), '')
+          ORDER BY m.tamano ASC, lote ASC
+        `, [detail.producto_id]);
+      } catch (lotErr) {
+        if (lotErr.code === '42703' || /column .*lote.* does not exist/i.test(String(lotErr.message || ''))) {
+          rows = await db.all(`
+            SELECT m.tamano,
+                   '' AS lote,
+                   SUM(COALESCE(m.cantidad_entrante, 0) - COALESCE(m.cantidad_saliente, 0)) AS fisico,
+                   COALESCE((
+                     SELECT SUM(r.cantidad) FROM cotizacion_reservas r
+                     WHERE r.producto_id = m.producto_id
+                       AND UPPER(r.tamano) = UPPER(m.tamano)
+                       AND r.estado = 'ACTIVA'
+                   ), 0) AS reservado
+            FROM almacen_movimientos m
+            WHERE m.producto_id = ? AND m.tamano IS NOT NULL AND BTRIM(m.tamano) <> ''
+            GROUP BY m.producto_id, m.tamano
+            ORDER BY m.tamano
+          `, [detail.producto_id]);
+        } else {
+          throw lotErr;
+        }
+      }
+
+      const lotes = rows.map(row => {
+        const fisico = Number(row.fisico || 0);
+        const reservado = Number(row.reservado || 0);
+        return {
+          tamano: row.tamano,
+          lote: row.lote ? String(row.lote).trim() : '',
+          fisico,
+          reservado,
+          disponible: fisico - reservado
+        };
+      });
+
+      const sizeTotals = new Map();
+      for (const lotRow of lotes) {
+        const key = String(lotRow.tamano || '').toUpperCase();
+        const current = sizeTotals.get(key) || {
+          tamano: lotRow.tamano,
+          fisico: 0,
+          reservado: 0,
+          disponible: 0
+        };
+        current.fisico += lotRow.fisico;
+        current.reservado += lotRow.reservado;
+        current.disponible += lotRow.disponible;
+        sizeTotals.set(key, current);
+      }
+
       availability.push({
         cotizacion_detalle_id: detail.id,
         producto_id: detail.producto_id,
-        tamanos: rows.map(row => ({
-          tamano: row.tamano,
-          fisico: Number(row.fisico || 0),
-          reservado: Number(row.reservado || 0),
-          disponible: Number(row.fisico || 0) - Number(row.reservado || 0)
-        }))
+        tamanos: [...sizeTotals.values()],
+        lotes: lotes.filter(item => item.disponible > 0 || item.fisico > 0)
       });
     }
     res.json(availability);
@@ -1910,7 +1972,7 @@ app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, require
       }
 
       const existing = await tx.all(`
-        SELECT cotizacion_detalle_id, producto_id, tamano, cantidad
+        SELECT *
         FROM cotizacion_reservas
         WHERE cotizacion_id = ? AND estado = 'ACTIVA'
         ORDER BY cotizacion_detalle_id, UPPER(tamano)
@@ -1921,9 +1983,10 @@ app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, require
             detailId: Number(row.detailId ?? row.cotizacion_detalle_id),
             productId: Number(row.productId ?? row.producto_id),
             size: String(row.size ?? row.tamano).trim().toUpperCase(),
+            lote: String(row.lote ?? '').trim().toUpperCase(),
             quantity: Number(row.quantity ?? row.cantidad)
           }))
-          .sort((a, b) => a.detailId - b.detailId || a.size.localeCompare(b.size));
+          .sort((a, b) => a.detailId - b.detailId || a.size.localeCompare(b.size) || a.lote.localeCompare(b.lote));
         if (JSON.stringify(canonical(existing)) !== JSON.stringify(canonical(normalizedAssignments))) {
           return { status: 409, body: { error: 'La solicitud ya tiene una reserva activa con otra distribución de tamaños.' } };
         }
@@ -1931,12 +1994,46 @@ app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, require
       }
 
       const requestedBySize = new Map();
+      const requestedBySizeAndLot = new Map();
       for (const assignment of normalizedAssignments) {
-        const key = `${assignment.productId}:${assignment.size.toUpperCase()}`;
-        const current = requestedBySize.get(key) || { ...assignment, quantity: 0 };
-        current.quantity += assignment.quantity;
-        requestedBySize.set(key, current);
+        const sizeKey = `${assignment.productId}:${assignment.size.toUpperCase()}`;
+        const currentSize = requestedBySize.get(sizeKey) || { ...assignment, quantity: 0 };
+        currentSize.quantity += assignment.quantity;
+        requestedBySize.set(sizeKey, currentSize);
+
+        if (assignment.lote) {
+          const lotKey = `${sizeKey}:${assignment.lote.toUpperCase()}`;
+          const currentLot = requestedBySizeAndLot.get(lotKey) || { ...assignment, quantity: 0 };
+          currentLot.quantity += assignment.quantity;
+          requestedBySizeAndLot.set(lotKey, currentLot);
+        }
       }
+
+      for (const assignment of requestedBySizeAndLot.values()) {
+        const physicalLot = await tx.get(`
+          SELECT COALESCE(SUM(cantidad_entrante - cantidad_saliente), 0) AS cantidad
+          FROM almacen_movimientos
+          WHERE producto_id = ?
+            AND UPPER(COALESCE(tamano, '')) = UPPER(?)
+            AND UPPER(COALESCE(lote, '')) = UPPER(?)
+        `, [assignment.productId, assignment.size, assignment.lote]);
+        const reservedLot = await tx.get(`
+          SELECT COALESCE(SUM(cantidad), 0) AS cantidad
+          FROM cotizacion_reservas
+          WHERE producto_id = ?
+            AND UPPER(tamano) = UPPER(?)
+            AND UPPER(COALESCE(lote, '')) = UPPER(?)
+            AND estado = 'ACTIVA'
+        `, [assignment.productId, assignment.size, assignment.lote]);
+        const availableLot = Number(physicalLot?.cantidad || 0) - Number(reservedLot?.cantidad || 0);
+        if (availableLot < assignment.quantity) {
+          return {
+            status: 409,
+            body: { error: `Disponibilidad insuficiente para ${assignment.size} (Lote ${assignment.lote}). Disponible: ${availableLot}.` }
+          };
+        }
+      }
+
       for (const assignment of requestedBySize.values()) {
         const physical = await tx.get(`
           SELECT COALESCE(SUM(cantidad_entrante - cantidad_saliente), 0) AS cantidad
@@ -1958,11 +2055,19 @@ app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, require
       }
 
       for (const assignment of normalizedAssignments) {
-        await tx.run(`
-          INSERT INTO cotizacion_reservas
-            (cotizacion_id, cotizacion_detalle_id, producto_id, tamano, cantidad, estado, reservado_por_id)
-          VALUES (?, ?, ?, ?, ?, 'ACTIVA', ?)
-        `, [quote.id, assignment.detailId, assignment.productId, assignment.size, assignment.quantity, req.user.id]);
+        if (assignment.lote) {
+          await tx.run(`
+            INSERT INTO cotizacion_reservas
+              (cotizacion_id, cotizacion_detalle_id, producto_id, tamano, lote, cantidad, estado, reservado_por_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'ACTIVA', ?)
+          `, [quote.id, assignment.detailId, assignment.productId, assignment.size, assignment.lote, assignment.quantity, req.user.id]);
+        } else {
+          await tx.run(`
+            INSERT INTO cotizacion_reservas
+              (cotizacion_id, cotizacion_detalle_id, producto_id, tamano, cantidad, estado, reservado_por_id)
+            VALUES (?, ?, ?, ?, ?, 'ACTIVA', ?)
+          `, [quote.id, assignment.detailId, assignment.productId, assignment.size, assignment.quantity, req.user.id]);
+        }
       }
       await tx.run("UPDATE cotizaciones SET almacen_estado = 'RESERVADA' WHERE id = ?", [quote.id]);
       return { status: 201, body: { success: true, reservas: normalizedAssignments } };
@@ -2061,9 +2166,9 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
         await tx.run(`
           INSERT INTO almacen_movimientos
             (fecha_movimiento, tipo_movimiento, producto_id, cantidad_entrante, cantidad_saliente,
-             existencias_resultantes, cotizacion_id, asesor_id, referencia_factura, notas, categoria, tamano)
-          VALUES (?, 'Salida por Pedido Reservado', ?, 0, ?, ?, ?, ?, ?, ?, 'Semilla', ?)
-        `, [now, reservation.producto_id, reservation.cantidad, newStock, id, req.user.id, q.folio_cotizacion, 'Salida de reserva CHG-025', reservation.tamano]);
+             existencias_resultantes, cotizacion_id, asesor_id, referencia_factura, notas, categoria, tamano, lote)
+          VALUES (?, 'Salida por Pedido Reservado', ?, 0, ?, ?, ?, ?, ?, ?, 'Semilla', ?, ?)
+        `, [now, reservation.producto_id, reservation.cantidad, newStock, id, req.user.id, q.folio_cotizacion, 'Salida de reserva CHG-025', reservation.tamano, reservation.lote || null]);
       }
       await tx.run(`
         UPDATE cotizacion_reservas
@@ -2089,9 +2194,9 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
         await tx.run(`
           INSERT INTO almacen_movimientos
             (fecha_movimiento, tipo_movimiento, producto_id, cantidad_entrante, cantidad_saliente,
-             existencias_resultantes, cotizacion_id, asesor_id, referencia_factura, notas, categoria, tamano)
-          VALUES (?, 'Reversión de Pedido Reservado', ?, ?, 0, ?, ?, ?, ?, ?, 'Semilla', ?)
-        `, [now, reservation.producto_id, reservation.cantidad, newStock, id, req.user.id, q.folio_cotizacion, `Reversión CHG-025 a ${estatus}`, reservation.tamano]);
+             existencias_resultantes, cotizacion_id, asesor_id, referencia_factura, notas, categoria, tamano, lote)
+          VALUES (?, 'Reversión de Pedido Reservado', ?, ?, 0, ?, ?, ?, ?, ?, 'Semilla', ?, ?)
+        `, [now, reservation.producto_id, reservation.cantidad, newStock, id, req.user.id, q.folio_cotizacion, `Reversión CHG-025 a ${estatus}`, reservation.tamano, reservation.lote || null]);
       }
       const reservationState = estatus === 'Cancelada' ? 'LIBERADA' : 'ACTIVA';
       await tx.run(`

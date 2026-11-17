@@ -81,7 +81,7 @@ function validateSizeAssignments({ detailId, productId, requestedQuantity, assig
     throw new Error('Debes asignar al menos un tamaño.');
   }
 
-  const seenSizes = new Set();
+  const seenKeys = new Set();
   let total = 0;
   const normalized = assignments.map(assignment => {
     const assignmentProductId = Number(assignment.productId ?? assignment.producto_id);
@@ -91,20 +91,32 @@ function validateSizeAssignments({ detailId, productId, requestedQuantity, assig
     const size = String(assignment.size ?? assignment.tamano ?? '').trim();
     if (!size) throw new Error('El tamaño es obligatorio.');
     const sizeKey = size.toLocaleUpperCase('es-MX');
-    if (seenSizes.has(sizeKey)) throw new Error(`Tamaño repetido: ${size}.`);
-    seenSizes.add(sizeKey);
+    const rawLot = assignment.lote ?? assignment.lot;
+    const lote = rawLot !== undefined && rawLot !== null && String(rawLot).trim() !== ''
+      ? String(rawLot).trim()
+      : null;
+    const lotKey = lote ? lote.toLocaleUpperCase('es-MX') : '';
+    const dedupeKey = lotKey ? `${sizeKey}::${lotKey}` : sizeKey;
+    if (seenKeys.has(dedupeKey)) {
+      throw new Error(lote ? `Tamaño y lote repetidos: ${size} (${lote}).` : `Tamaño repetido: ${size}.`);
+    }
+    seenKeys.add(dedupeKey);
 
     const quantity = Number(assignment.quantity ?? assignment.cantidad);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new Error('Cada cantidad asignada debe ser positiva.');
     }
     total += quantity;
-    return {
+    const result = {
       detailId: Number(detailId),
       productId: Number(productId),
       size,
       quantity
     };
+    if (lote) {
+      result.lote = lote;
+    }
+    return result;
   });
 
   if (Math.abs(total - expected) > 1e-9) {
