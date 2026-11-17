@@ -288,6 +288,7 @@ async function initSchema() {
         cotizacion_detalle_id INTEGER NOT NULL REFERENCES cotizacion_detalles(id) ON DELETE CASCADE,
         producto_id INTEGER NOT NULL REFERENCES productos(id),
         tamano TEXT NOT NULL,
+        lote TEXT,
         cantidad NUMERIC(14,3) NOT NULL CHECK (cantidad > 0),
         estado TEXT NOT NULL DEFAULT 'ACTIVA' CHECK (estado IN ('ACTIVA', 'CONSUMIDA', 'LIBERADA')),
         reservado_por_id INTEGER NOT NULL REFERENCES asesores(id),
@@ -295,9 +296,11 @@ async function initSchema() {
         actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query('ALTER TABLE cotizacion_reservas ADD COLUMN IF NOT EXISTS lote TEXT');
+    await pool.query('DROP INDEX IF EXISTS uq_cotizacion_reserva_activa_detalle_tamano');
     await pool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_cotizacion_reserva_activa_detalle_tamano
-      ON cotizacion_reservas (cotizacion_detalle_id, UPPER(tamano))
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_cotizacion_reserva_activa_detalle_tamano_lote
+      ON cotizacion_reservas (cotizacion_detalle_id, UPPER(tamano), UPPER(COALESCE(lote, '')))
       WHERE estado = 'ACTIVA'
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizacion_reservas_disponibilidad ON cotizacion_reservas (producto_id, UPPER(tamano), estado)');

@@ -1070,3 +1070,24 @@ BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventa
 - **Y** una base de datos donde falta `venta_confirmada_en` en `cotizaciones`
 - **Cuando** un `Administrador` o `Coordinador` confirma venta mediante `PUT /api/cotizaciones/:id/confirmaciones-contado`
 - **Entonces** el servidor adapta el `UPDATE` a las columnas disponibles y responde `200`.
+
+
+### BDD-SC-131 — Consultar disponibilidad desglosada por tamaño y lote
+
+- **Dado** una solicitud `CHG-025` pendiente de asignación con existencias en lotes `LOTE-A` y `LOTE-B`
+- **Cuando** el usuario `Almacen` consulta `GET /api/almacen/solicitudes/:id/disponibilidad`
+- **Entonces** la respuesta tiene código `200` e incluye el desglose `lotes` con `LOTE-A` y `LOTE-B`.
+
+### BDD-SC-132 — Asignar una misma partida y tamaño repartida en diferentes lotes
+
+- **Dado** una solicitud `CHG-025` pendiente de asignación con `200` bolsas
+- **Y** disponibilidad suficiente de `BT1` repartida entre `LOTE-A` (`120`) y `LOTE-B` (`100`)
+- **Cuando** el usuario `Almacen` asigna `120` de `BT1` (`LOTE-A`) y `80` de `BT1` (`LOTE-B`)
+- **Entonces** la respuesta tiene código `201` y registra ambas reservas activas con su lote.
+
+### BDD-SC-133 — Rechazar asignación que excede la existencia del lote seleccionado
+
+- **Dado** una solicitud `CHG-025` pendiente de asignación con `200` bolsas
+- **Y** `LOTE-A` tiene solo `50` bolsas disponibles
+- **Cuando** el usuario `Almacen` intenta asignar `100` bolsas de `LOTE-A` y `100` de `LOTE-B`
+- **Entonces** la respuesta tiene código `409`.

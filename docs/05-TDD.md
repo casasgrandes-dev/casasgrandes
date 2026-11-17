@@ -875,3 +875,32 @@ Implementados en la rama. El detalle está en `docs/cambios/CHG-027/casos-tdd.md
 - Archivo: `test/chg031_decision_resilience.test.js`.
 - Verifica que errores de infraestructura no relacionados con columnas ausentes (por ejemplo error de conexión) devuelven `500` sin bucle de reintentos.
 - Estado: passed.
+
+
+### TDD-TC-142 — `validateSizeAssignments` soporta múltiples lotes para un mismo tamaño
+
+- Cubre: BDD-SC-132, PRD-FR-067.
+- Archivo: `test/chg032_almacen_lotes_asignacion.test.js`.
+- Verifica que un mismo tamaño con lotes distintos sea válido, que `(tamaño, lote)` repetido se rechace y que sin lote se conserve el rechazo de tamaño repetido.
+- Estado: passed.
+
+### TDD-TC-143 — `GET /api/almacen/solicitudes/:id/disponibilidad` devuelve desglose `lotes`
+
+- Cubre: BDD-SC-131, PRD-FR-067.
+- Archivo: `test/chg032_almacen_lotes_asignacion.test.js`.
+- Verifica que el endpoint incluya `lotes` con `tamano`, `lote`, `fisico`, `reservado` y `disponible`, además de `tamanos`.
+- Estado: passed.
+
+### TDD-TC-144 — `POST /api/almacen/solicitudes/:id/asignaciones` reserva por `(producto_id, tamano, lote)`
+
+- Cubre: BDD-SC-132, BDD-SC-133, PRD-FR-067.
+- Archivo: `test/chg032_almacen_lotes_asignacion.test.js`.
+- Verifica reserva exitosa en múltiples lotes (`201`) y rechazo (`409`) cuando un lote no tiene disponibilidad suficiente.
+- Estado: passed.
+
+### TDD-TC-145 — `public/js/app.js` envía `producto_id` y `lote` desde el modal de Almacén
+
+- Cubre: PRD-FR-067.
+- Archivo: `test/chg032_almacen_lotes_asignacion.test.js`.
+- Verifica que `warehouse-assignment-form` incluya `producto_id` y `lote` en `asignaciones` y que `openWarehouseAssignment` renderice los controles por lote.
+- Estado: passed.

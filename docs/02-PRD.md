@@ -604,3 +604,10 @@ El modal de Detalle de Cotización debe permitir a los roles `Administrador` y `
 ### PRD-FR-066 — Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado`
 
 `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado` deben tolerar esquemas PostgreSQL donde alguna columna aditiva de `CHG-025` en `cotizaciones` (`decision_por_id`, `decision_en`, `motivo_rechazo`, `almacen_estado`, `venta_confirmada_en`, `cobro_confirmado_en`) no exista (código PostgreSQL `42703` o error de columna inexistente), ejecutando `db.ensureQuotationsSchema()` en el primer reintento y adaptando dinámicamente el `UPDATE` a las columnas disponibles.
+
+
+## Incremento CHG-032 — Asignación de tamaños y múltiples lotes en Almacén
+
+### PRD-FR-067 — Envío de `producto_id` y asignación multi-lote por tamaño en Almacén
+
+El modal de asignación de Almacén (`public/js/app.js`) debe enviar `producto_id` y `lote` (cuando aplique) en `asignaciones` hacia `POST /api/almacen/solicitudes/:id/asignaciones`. `GET /api/almacen/solicitudes/:id/disponibilidad` debe exponer tanto el agregado `tamanos` como el desglose `lotes` por `(tamano, lote)`. `cotizacion_reservas`, `validateSizeAssignments`, `POST /api/almacen/solicitudes/:id/asignaciones` y la salida/reversión en `PUT /api/cotizaciones/:id/status` deben soportar múltiples lotes para un mismo tamaño y partida, validando disponibilidad por `(producto_id, tamano, lote)` y manteniendo compatibilidad con asignaciones sin lote.
