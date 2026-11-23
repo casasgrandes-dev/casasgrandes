@@ -1042,11 +1042,10 @@ window.moveQuoteStatus = async function(quoteId, currentStatus, direction, event
   const isChg025 = quote?.flujo_version === 'CHG-025';
   let targetStatus;
   if (isChg025) {
-    const condition = normalizedQuoteCondition(quote.condiciones_pago);
     if (direction === 'down' && ['Autorizada', 'Vendido'].includes(currentStatus)) {
       targetStatus = 'Entregado';
     } else if (direction === 'up' && currentStatus === 'Entregado') {
-      targetStatus = condition === 'CONTADO' ? 'Vendido' : 'Autorizada';
+      targetStatus = 'Vendido';
     } else {
       return;
     }
@@ -1354,6 +1353,17 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
     const prevLabel = isChg025 && status === 'Entregado' ? 'Revertir' : (prevLabels[status] || '');
     const nextLabel = isChg025 && ['Autorizada', 'Vendido'].includes(status) ? 'Entregar' : (nextLabels[status] || '');
     const isSelected = selectedKanbanQuoteIds.has(Number(q.id));
+    const warehouseBadgeMap = {
+      PENDIENTE: { cls: 'badge-warning', text: 'Pendiente de asignar' },
+      RESERVADA: { cls: 'badge-success', text: 'Reservada · Lista para entregar' },
+      ENTREGADA: { cls: 'badge-info', text: 'Entregada' }
+    };
+    const warehouseBadge = isChg025 && warehouseBadgeMap[q.almacen_estado]
+      ? `<div style="margin-top:6px;"><span class="badge ${warehouseBadgeMap[q.almacen_estado].cls}">${warehouseBadgeMap[q.almacen_estado].text}</span></div>`
+      : '';
+    const warehouseAssignAction = user?.nivel_rol === 'Almacen' && isChg025 && q.almacen_estado === 'PENDIENTE'
+      ? `<div style="margin-top:8px;"><button type="button" class="btn btn-primary" style="width:100%;padding:6px 8px;font-size:12px;" onclick="event.stopPropagation(); openWarehouseAssignment(${q.id})">📦 Asignar tamaños</button></div>`
+      : '';
     
     card.innerHTML = `
       <div class="kanban-card-title">
@@ -1362,10 +1372,12 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
       </div>
       <div class="kanban-card-desc">${itemsSummary}</div>
       <div style="font-size:11px; color:var(--text-light); font-weight: 500;">Folio: ${q.folio_cotizacion}</div>
+      ${isChg025 ? `<div style="font-size:11px; color:var(--text-light);">${escapeHtml(condition)}</div>` : ''}
       <div class="kanban-card-meta">
         <span style="font-size: 11px; color: var(--text-light);">👤 ${q.asesor_nombre.split(' ')[0]}</span>
         ${condition === 'APARTADO' ? '' : `<span class="kanban-card-price">$${q.total_mxn.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>`}
       </div>
+      ${warehouseBadge}${warehouseAssignAction}
       <div class="kanban-card-mobile-arrows">
         ${canManageSalesFlow() && prevLabel ? `<button class="kanban-arrow-btn prev-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'up', event)">▲ ${prevLabel}</button>` : ''}
         ${canManageSalesFlow() && nextLabel ? `<button class="kanban-arrow-btn next-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'down', event)">▼ ${nextLabel}</button>` : ''}
@@ -1602,7 +1614,7 @@ let activeQuoteId = null;
 let activeQuote = null;
 let editQuoteItemsCount = 0;
 
-window.showQuoteDetails = async function(quoteId) {
+async function showQuoteDetails(quoteId) {
   try {
     // Reset modal display modes
     toggleQuoteEditMode(false);
@@ -1793,12 +1805,25 @@ window.showQuoteDetails = async function(quoteId) {
       && !['Entregado', 'Cancelada', 'Rechazada'].includes(quote.estatus);
     if (cancelBtn) cancelBtn.style.display = canCancelChg025 ? 'inline-flex' : 'none';
 
+    const assignWarehouseBtn = document.getElementById('btn-assign-warehouse-sizes');
+    if (assignWarehouseBtn) {
+      const canAssignWarehouse = user && user.nivel_rol === 'Almacen' && isChg025 && quote.almacen_estado === 'PENDIENTE';
+      assignWarehouseBtn.style.display = canAssignWarehouse ? 'inline-flex' : 'none';
+      assignWarehouseBtn.onclick = canAssignWarehouse
+        ? () => {
+            closeModal('quote-detail-modal');
+            openWarehouseAssignment(quote.id, quote);
+          }
+        : null;
+    }
+
     openModal('quote-detail-modal');
   } catch (err) {
     console.error('Failed to show quote details:', err);
     alert('Error al mostrar los detalles de la cotización: ' + err.message);
   }
-};
+}
+window.showQuoteDetails = showQuoteDetails;
 
 window.cancelCommercialRequest = async function(event) {
   event?.preventDefault();
@@ -3209,8 +3234,10 @@ window.loadWarehouseRequests = async function() {
   }
 };
 
-window.openWarehouseAssignment = async function(quoteId) {
-  const request = warehouseRequests.find(item => Number(item.id) === Number(quoteId));
+window.openWarehouseAssignment = async function(quoteId, quoteOverride = null) {
+  const request = quoteOverride
+    || warehouseRequests.find(item => Number(item.id) === Number(quoteId))
+    || allQuotes.find(item => Number(item.id) === Number(quoteId));
   if (!request) return;
   try {
     const response = await fetch(`${API_URL}/api/almacen/solicitudes/${quoteId}/disponibilidad`, { headers: getHeaders() });
@@ -3274,7 +3301,11 @@ document.getElementById('warehouse-assignment-form')?.addEventListener('submit',
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'No fue posible reservar los tamaños.');
     closeModal('warehouse-assignment-modal');
-    await loadWarehouseRequests();
+    await Promise.all([
+      loadWarehouseRequests(),
+      loadCRMBoardData(),
+      loadAlmacenData()
+    ]);
     alert(data.replay ? 'La solicitud ya tenía una reserva activa.' : 'Tamaños reservados correctamente.');
   } catch (error) {
     alert(error.message);
@@ -4192,10 +4223,17 @@ async function loadAlmacenData() {
       } else {
         const canAdjustStock = user?.nivel_rol === 'Administrador';
         stockTbody.innerHTML = allWarehouseStocks.map(s => {
-          const qty = Number(s.existencias || 0);
-          const isLow = qty <= 0;
+          const physicalQty = Number(s.existencias || 0);
+          const reservedQty = Number(s.reservado || 0);
+          const availableQty = s.disponible !== undefined && s.disponible !== null ? Number(s.disponible) : physicalQty;
+          const isLow = availableQty <= 0;
           const statusBadge = isLow ? `<span class="badge badge-danger">Sin Stock</span>` : `<span class="badge badge-success">Disponible</span>`;
-          const qtyFormatted = qty.toLocaleString('es-MX', { minimumFractionDigits: 3 });
+          const qtyFormatted = availableQty.toLocaleString('es-MX', { minimumFractionDigits: 3 });
+          const physicalFormatted = physicalQty.toLocaleString('es-MX', { minimumFractionDigits: 3 });
+          const reservedFormatted = reservedQty.toLocaleString('es-MX', { minimumFractionDigits: 3 });
+          const reservationMeta = reservedQty > 0
+            ? `<div style="font-size: 11px; font-weight: 500; color: var(--text-light); margin-top: 2px;">Físico: ${physicalFormatted} · Reservado: ${reservedFormatted}</div>`
+            : '';
           const prodName = escapeHtml(s.producto || 'Sin Nombre');
           const catName = escapeHtml(s.tipo_categoria || '-');
           
@@ -4204,8 +4242,13 @@ async function loadAlmacenData() {
           if (hasLots) {
             const lotsItems = s.lotes.map(l => {
               const tamanoInfo = l.tamano ? ` <span style="color: var(--text-light); font-size: 11px;">(${escapeHtml(l.tamano)})</span>` : '';
-              const stockNum = Number(l.stock || 0).toLocaleString('es-MX', { minimumFractionDigits: 3 });
-              return `<span class="lot-badge" style="display: inline-flex; align-items: center; background: #ffffff; border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; margin-right: 8px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);"><strong>${escapeHtml(l.lote)}</strong>${tamanoInfo}&nbsp;-&nbsp;<span style="color: var(--primary); font-weight: 700; margin-left: 2px;">${stockNum}</span></span>`;
+              const lotReserved = Number(l.reservado || 0);
+              const lotAvailable = l.disponible !== undefined && l.disponible !== null ? Number(l.disponible) : Number(l.stock || 0);
+              const stockNum = lotAvailable.toLocaleString('es-MX', { minimumFractionDigits: 3 });
+              const lotReservedInfo = lotReserved > 0
+                ? `<span style="color: #b45309; font-size: 11px; margin-left: 6px;">(Reservado: ${lotReserved.toLocaleString('es-MX', { minimumFractionDigits: 3 })})</span>`
+                : '';
+              return `<span class="lot-badge" style="display: inline-flex; align-items: center; background: #ffffff; border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; margin-right: 8px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);"><strong>${escapeHtml(l.lote)}</strong>${tamanoInfo}&nbsp;-&nbsp;<span style="color: var(--primary); font-weight: 700; margin-left: 2px;">${stockNum}</span>${lotReservedInfo}</span>`;
             }).join('');
 
             lotsHtml = `
@@ -4238,7 +4281,7 @@ async function loadAlmacenData() {
                 </div>
               </td>
               <td>${catName}</td>
-              <td style="text-align: right; font-weight: 600; ${isLow ? 'color: var(--danger);' : ''}">${qtyFormatted}</td>
+              <td style="text-align: right; font-weight: 600; ${isLow ? 'color: var(--danger);' : ''}">${qtyFormatted}${reservationMeta}</td>
               <td>${statusBadge}</td>
             </tr>
             ${lotsHtml}

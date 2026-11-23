@@ -611,3 +611,10 @@ El modal de Detalle de Cotización debe permitir a los roles `Administrador` y `
 ### PRD-FR-067 — Envío de `producto_id` y asignación multi-lote por tamaño en Almacén
 
 El modal de asignación de Almacén (`public/js/app.js`) debe enviar `producto_id` y `lote` (cuando aplique) en `asignaciones` hacia `POST /api/almacen/solicitudes/:id/asignaciones`. `GET /api/almacen/solicitudes/:id/disponibilidad` debe exponer tanto el agregado `tamanos` como el desglose `lotes` por `(tamano, lote)`. `cotizacion_reservas`, `validateSizeAssignments`, `POST /api/almacen/solicitudes/:id/asignaciones` y la salida/reversión en `PUT /api/cotizaciones/:id/status` deben soportar múltiples lotes para un mismo tamaño y partida, validando disponibilidad por `(producto_id, tamano, lote)` y manteniendo compatibilidad con asignaciones sin lote.
+
+## Incremento CHG-033 — Asignación desde Canal de Ventas, promoción automática a Vendido y visibilidad de disponible en Existencias
+
+### PRD-FR-068 — Asignación de tamaños desde Canal de Ventas, promoción a Vendido y columnas de disponible en Existencias
+
+El Canal de Ventas (`renderKanbanBoard`) y el modal `Detalle de Cotización` (`showQuoteDetails`) deben mostrar el botón `"Asignar tamaños"` en las solicitudes `CHG-025` de condición `CREDITO` y `APARTADO` en columna `Cotizado (Autorizada)` (`almacen_estado = 'PENDIENTE'`) exclusivamente para el rol `Almacen`. Al confirmar la asignación en `POST /api/almacen/solicitudes/:id/asignaciones`, el servidor actualiza atómicamente `almacen_estado = 'RESERVADA'` y `estatus = 'Vendido'`, manteniendo la regla de `ADR-016` (reservas `ACTIVA` en `cotizacion_reservas`, sin salida física en `almacen_movimientos` hasta `Entregado`). Al revertir una entrega en `PUT /api/cotizaciones/:id/status`, las solicitudes `CHG-025` regresan a `estatus = 'Vendido'` con `almacen_estado = 'RESERVADA'` y reserva reactivada en `ACTIVA`. `GET /api/almacen/existencias` y `#stock-tbody` deben mostrar `reservado` y `disponible` además de las existencias físicas para hacer visible de inmediato el descuento de las bolsas reservadas.
+
