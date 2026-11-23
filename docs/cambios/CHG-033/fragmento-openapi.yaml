@@ -1,0 +1,16 @@
+# Fragmento OpenAPI — CHG-033
+# Este cambio no modifica `docs/api/bot-v1.yaml` ni el API de bots `/api/v1/bot`.
+# Impacto en endpoints internos de la aplicación (`server.js`):
+#
+# - `POST /api/almacen/solicitudes/:id/asignaciones`
+#   - Rol requerido: `Almacen`
+#   - Efecto adicional (CHG-033 / ADR-020): cuando la solicitud `CHG-025` tiene
+#     `estatus = 'Autorizada'` y condición `CREDITO` o `APARTADO`, actualiza
+#     atómicamente `almacen_estado = 'RESERVADA'` y `estatus = 'Vendido'`.
+#   - Respuesta 201: `{ success: true, estatus: 'Vendido', almacen_estado: 'RESERVADA', reservas: [...] }`
+#
+# - `GET /api/almacen/existencias`
+#   - Impacto en respuesta 200 (arreglo por producto):
+#     agrega los campos numéricos `reservado` (suma de `cotizacion_reservas` en
+#     estado `'ACTIVA'`) y `disponible` (`existencias - reservado`, redondeado a 3 decimales)
+#     junto con `existencias` (físico) y `lotes` (solo `Almacen` y `Administrador`).

@@ -1990,7 +1990,7 @@ app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, require
         if (JSON.stringify(canonical(existing)) !== JSON.stringify(canonical(normalizedAssignments))) {
           return { status: 409, body: { error: 'La solicitud ya tiene una reserva activa con otra distribución de tamaños.' } };
         }
-        return { status: 200, body: { success: true, replay: true, reservas: existing } };
+        return { status: 200, body: { success: true, replay: true, estatus: quote.estatus || 'Vendido', reservas: existing } };
       }
 
       const requestedBySize = new Map();
@@ -2069,8 +2069,16 @@ app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, require
           `, [quote.id, assignment.detailId, assignment.productId, assignment.size, assignment.quantity, req.user.id]);
         }
       }
-      await tx.run("UPDATE cotizaciones SET almacen_estado = 'RESERVADA' WHERE id = ?", [quote.id]);
-      return { status: 201, body: { success: true, reservas: normalizedAssignments } };
+      const nextStatus = quote.estatus === 'Autorizada' ? 'Vendido' : quote.estatus;
+      if (quote.estatus === 'Autorizada') {
+        await tx.run("UPDATE cotizaciones SET almacen_estado = 'RESERVADA', estatus = 'Vendido' WHERE id = ?", [quote.id]);
+      } else {
+        await tx.run("UPDATE cotizaciones SET almacen_estado = 'RESERVADA' WHERE id = ?", [quote.id]);
+      }
+      return {
+        status: 201,
+        body: { success: true, estatus: nextStatus, almacen_estado: 'RESERVADA', reservas: normalizedAssignments }
+      };
     });
     res.status(outcome.status).json(outcome.body);
   } catch (error) {
@@ -2609,8 +2617,10 @@ app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
       ORDER BY p.producto ASC
     `);
 
+    const canSeeLots = req.user.nivel_rol === 'Almacen' || req.user.nivel_rol === 'Administrador';
+
     // Los tamaños y lotes son información operativa exclusiva del rol Almacén.
-    const lotsRows = (req.user.nivel_rol === 'Almacen' || req.user.nivel_rol === 'Administrador')
+    const lotsRows = canSeeLots
       ? await db.all(`
           SELECT producto_id, lote, tamano,
                  (SUM(COALESCE(cantidad_entrante, 0)) - SUM(COALESCE(cantidad_saliente, 0))) AS stock
@@ -2622,23 +2632,61 @@ app.get('/api/almacen/existencias', authenticateToken, async (req, res) => {
         `)
       : [];
 
+    let reservationRows = [];
+    try {
+      const rows = await db.all(`
+        SELECT producto_id,
+               COALESCE(lote, '') AS lote,
+               COALESCE(tamano, '') AS tamano,
+               COALESCE(SUM(cantidad), 0) AS reservado
+        FROM cotizacion_reservas
+        WHERE estado = 'ACTIVA'
+        GROUP BY producto_id, COALESCE(lote, ''), COALESCE(tamano, '')
+      `);
+      if (Array.isArray(rows)) {
+        reservationRows = rows;
+      }
+    } catch (_) {
+      reservationRows = [];
+    }
+
+    const reservedByProduct = new Map();
+    const reservedByLot = new Map();
+    for (const row of reservationRows) {
+      const prodId = Number(row.producto_id);
+      const qty = Number(row.reservado) || 0;
+      reservedByProduct.set(prodId, (reservedByProduct.get(prodId) || 0) + qty);
+
+      const lotKey = `${prodId}:${String(row.lote || '').trim().toUpperCase()}:${String(row.tamano || '').trim().toUpperCase()}`;
+      reservedByLot.set(lotKey, (reservedByLot.get(lotKey) || 0) + qty);
+    }
+
     const lotsByProduct = new Map();
     for (const row of lotsRows) {
       const prodId = Number(row.producto_id);
       if (!lotsByProduct.has(prodId)) {
         lotsByProduct.set(prodId, []);
       }
+      const stock = Math.round((Number(row.stock) || 0) * 1000) / 1000;
+      const lotKey = `${prodId}:${String(row.lote || '').trim().toUpperCase()}:${String(row.tamano || '').trim().toUpperCase()}`;
+      const reservado = Math.round((reservedByLot.get(lotKey) || 0) * 1000) / 1000;
+      const disponible = Math.max(0, Math.round((stock - reservado) * 1000) / 1000);
       lotsByProduct.get(prodId).push({
         lote: row.lote,
         tamano: row.tamano,
-        stock: Math.round((Number(row.stock) || 0) * 1000) / 1000
+        stock,
+        reservado,
+        disponible
       });
     }
 
     for (const item of existencias) {
+      const prodId = Number(item.id);
       item.existencias = Math.round((Number(item.existencias) || 0) * 1000) / 1000;
-      if (req.user.nivel_rol === 'Almacen' || req.user.nivel_rol === 'Administrador') {
-        item.lotes = lotsByProduct.get(Number(item.id)) || [];
+      item.reservado = Math.round((reservedByProduct.get(prodId) || 0) * 1000) / 1000;
+      item.disponible = Math.max(0, Math.round((item.existencias - item.reservado) * 1000) / 1000);
+      if (canSeeLots) {
+        item.lotes = lotsByProduct.get(prodId) || [];
       }
     }
 

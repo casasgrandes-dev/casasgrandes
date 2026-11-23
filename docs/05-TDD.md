@@ -904,3 +904,48 @@ Implementados en la rama. El detalle está en `docs/cambios/CHG-027/casos-tdd.md
 - Archivo: `test/chg032_almacen_lotes_asignacion.test.js`.
 - Verifica que `warehouse-assignment-form` incluya `producto_id` y `lote` en `asignaciones` y que `openWarehouseAssignment` renderice los controles por lote.
 - Estado: passed.
+
+
+### TDD-TC-146 — `POST /api/almacen/solicitudes/:id/asignaciones` promueve atómicamente de `Autorizada` a `Vendido` sin salida física
+
+- Cubre: BDD-SC-134, PRD-FR-068.
+- Archivo: `test/chg033_asignacion_canal_ventas.test.js`.
+- Verifica que al confirmar asignaciones con tamaños variados (`BT`, `BT2`, `BT3`, `SP`) sobre una solicitud `CHG-025` en `estatus = 'Autorizada'` (`CREDITO` o `APARTADO`), el servidor responda `201`, devuelva `estatus: 'Vendido'`, actualice atómicamente `almacen_estado = 'RESERVADA'` y `estatus = 'Vendido'`, cree reservas `ACTIVA` y no inserte movimientos físicos en `almacen_movimientos`.
+- Estado: passed.
+
+### TDD-TC-147 — Idempotencia (replay) conserva `Vendido` y fallo `409` no promueve ni reserva
+
+- Cubre: BDD-SC-135, PRD-FR-068.
+- Archivo: `test/chg033_asignacion_canal_ventas.test.js`.
+- Verifica que el replay idempotente responda `200` con `replay: true` y `estatus: 'Vendido'` sin `UPDATE`, y que ante disponibilidad insuficiente (`409`) no se actualice `cotizaciones` ni se inserten reservas.
+- Estado: passed.
+
+### TDD-TC-148 — RBAC estricto para asignación y disponibilidad de Almacén
+
+- Cubre: BDD-SC-136, PRD-FR-068.
+- Archivo: `test/chg033_asignacion_canal_ventas.test.js`.
+- Verifica que roles distintos a `Almacen` (`Administrador`, `Coordinador`, `Asesor`) reciban `403` en `GET /api/almacen/solicitudes/:id/disponibilidad` y `POST /api/almacen/solicitudes/:id/asignaciones`.
+- Estado: passed.
+
+### TDD-TC-149 — `GET /api/almacen/existencias` expone `reservado` y `disponible` por producto y lote
+
+- Cubre: BDD-SC-137, PRD-FR-068.
+- Archivo: `test/chg033_asignacion_canal_ventas.test.js`.
+- Verifica que el endpoint sume `cotizacion_reservas` en estado `ACTIVA` y devuelva `reservado` y `disponible = existencias - reservado` a nivel producto (y por lote/tamaño para `Almacen` y `Administrador`), manteniendo `existencias` físicas intactas y sin exponer `lotes` a `Asesor`.
+- Estado: passed.
+
+### TDD-TC-150 — UI de Canal de Ventas, Detalle de Cotización y Existencias para `Almacen`
+
+- Cubre: BDD-SC-134, BDD-SC-136, BDD-SC-137, PRD-FR-068.
+- Archivo: `test/chg033_asignacion_canal_ventas.test.js`.
+- Verifica en `public/index.html` y `public/js/app.js` el botón `#btn-assign-warehouse-sizes` y el botón de tarjeta Kanban restringidos a `user.nivel_rol === 'Almacen'` y `almacen_estado === 'PENDIENTE'`, la búsqueda en `allQuotes` dentro de `openWarehouseAssignment`, la recarga de `loadCRMBoardData()` y `loadAlmacenData()` tras confirmar, y la visualización de `disponible` y `reservado` en `#stock-tbody`.
+- Estado: passed.
+
+### TDD-TC-151 — Reversión desde `Entregado` regresa `CHG-025` a `Vendido`
+
+- Cubre: PRD-FR-068, ADR-020.
+- Archivo: `test/chg033_asignacion_canal_ventas.test.js`.
+- Verifica que en `moveQuoteStatus()` (`public/js/app.js`), al revertir una solicitud `CHG-025` desde `Entregado` (`direction === 'up'`), el estado destino sea `Vendido` (manteniendo reserva activa) para todas las condiciones.
+- Estado: passed.
+
+

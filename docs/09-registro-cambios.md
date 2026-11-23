@@ -30,6 +30,7 @@
 | CHG-030 | 2026-11-14 | Habilitar decisión comercial (autorizar y rechazar con motivo) y doble confirmación de Contado en el modal Detalle de Cotización para Administrador y Coordinador, aislando botones en Canal de Ventas | ADR-016, OBJ-022, PRD-FR-058, PRD-FR-065 | BDD-SC-126..128; TDD-TC-135..138; EVD-026 | propuesta-implementada |
 | CHG-031 | 2026-11-16 | Resiliencia de esquema en `PUT /api/cotizaciones/:id/decision` y `PUT /api/cotizaciones/:id/confirmaciones-contado` ante columnas aditivas ausentes en `cotizaciones` | ADR-016, OBJ-022, PRD-FR-066 | BDD-SC-129..130; TDD-TC-139..141; EVD-027 | implemented-tested-local |
 | CHG-032 | 2026-11-17 | Desbloqueo de asignación en Almacén (`producto_id`) y soporte de selección multi-lote por tamaño en disponibilidad, reservas, UI y salida | ADR-016, OBJ-022, PRD-FR-067 | BDD-SC-131..133; TDD-TC-142..145; EVD-028 | implemented-tested-local |
+| CHG-033 | 2026-11-23 | Botón "Asignar tamaños" exclusivo de `Almacen` en Canal de Ventas y Detalle de Cotización, promoción automática `Autorizada -> Vendido` al confirmar reserva, reversión a `Vendido` y visibilidad de `reservado`/`disponible` en Existencias | ADR-016, ADR-020, OBJ-022, PRD-FR-068 | BDD-SC-134..137; TDD-TC-146..151; EVD-029 | implemented-tested-local |
 
 ## Reglas
 
