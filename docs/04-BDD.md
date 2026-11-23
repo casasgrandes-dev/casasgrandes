@@ -1091,3 +1091,36 @@ BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventa
 - **Y** `LOTE-A` tiene solo `50` bolsas disponibles
 - **Cuando** el usuario `Almacen` intenta asignar `100` bolsas de `LOTE-A` y `100` de `LOTE-B`
 - **Entonces** la respuesta tiene código `409`.
+
+## Escenarios BDD del Incremento CHG-033
+
+### BDD-SC-134 — Confirmar asignación de Almacén promueve solicitud autorizada de Crédito o Apartado a Vendido sin salida física inmediata
+
+- **Dado** una solicitud `CHG-025` de condición `CREDITO` o `APARTADO` en `estatus = 'Autorizada'` y `almacen_estado = 'PENDIENTE'`
+- **Y** existencias físicas suficientes en `BT1` (`LOTE-A`)
+- **Cuando** el usuario `Almacen` confirma la asignación mediante `POST /api/almacen/solicitudes/:id/asignaciones`
+- **Entonces** la respuesta tiene código `201`
+- **Y** la solicitud queda atómicamente en `almacen_estado = 'RESERVADA'` y `estatus = 'Vendido'`
+- **Y** se crea la reserva `ACTIVA` en `cotizacion_reservas` sin registrar salida física en `almacen_movimientos`.
+
+### BDD-SC-135 — Existencias refleja reservado y disponible de inmediato tras asignar tamaños
+
+- **Dado** un producto con `150` bolsas físicas y `100` bolsas en reservas `ACTIVA` en `cotizacion_reservas`
+- **Cuando** un usuario con acceso a Existencias consulta `GET /api/almacen/existencias`
+- **Entonces** la respuesta tiene código `200` y reporta `existencias = 150`, `reservado = 100` y `disponible = 50`
+- **Y** `#stock-tbody` renderiza `reservado` y `disponible` además de las existencias físicas.
+
+### BDD-SC-136 — Botón "Asignar tamaños" en Canal de Ventas y Detalle de Cotización es exclusivo del rol Almacen
+
+- **Dado** una solicitud `CHG-025` (`CREDITO` o `APARTADO`) en columna `Cotizado (Autorizada)` con `almacen_estado = 'PENDIENTE'`
+- **Cuando** el usuario `Almacen` abre el Canal de Ventas o el modal `Detalle de Cotización`
+- **Entonces** visualiza el botón `"Asignar tamaños"` en la tarjeta Kanban y en el modal
+- **Y** cuando un usuario `Administrador`, `Coordinador`, `Asesor` u `Observador` visualiza la misma solicitud, el botón no se muestra.
+
+### BDD-SC-137 — Revertir entrega de solicitud CHG-025 la regresa a Vendido conservando la reserva activa
+
+- **Dado** una solicitud `CHG-025` de `CREDITO` o `APARTADO` en `estatus = 'Entregado'` y `almacen_estado = 'ENTREGADA'`
+- **Cuando** un `Administrador` o `Coordinador` revierte la entrega en `PUT /api/cotizaciones/:id/status` hacia el paso anterior
+- **Entonces** la respuesta tiene código `200`
+- **Y** la solicitud regresa a `estatus = 'Vendido'` con `almacen_estado = 'RESERVADA'` y reserva reactivada en `ACTIVA`.
+
