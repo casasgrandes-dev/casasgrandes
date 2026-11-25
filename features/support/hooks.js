@@ -8,7 +8,8 @@ const originals = {
   all: db.all,
   transaction: db.transaction,
   checkReadiness: db.checkReadiness,
-  ensureQuotationsSchema: db.ensureQuotationsSchema
+  ensureQuotationsSchema: db.ensureQuotationsSchema,
+  ensureWarehouseMovementsSchema: db.ensureWarehouseMovementsSchema
 };
 
 After(function restoreDatabaseDoubles() {
@@ -17,4 +18,5 @@ After(function restoreDatabaseDoubles() {
   db.transaction = originals.transaction;
   db.checkReadiness = originals.checkReadiness;
   db.ensureQuotationsSchema = originals.ensureQuotationsSchema;
+  db.ensureWarehouseMovementsSchema = originals.ensureWarehouseMovementsSchema;
 });
