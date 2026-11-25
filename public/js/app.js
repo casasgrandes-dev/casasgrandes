@@ -728,7 +728,7 @@ async function loadDashboardData() {
     const ordersTbody = document.getElementById('recent-orders-tbody');
     ordersTbody.innerHTML = '';
     
-    if (quotes.length === 0) {
+    if (!Array.isArray(quotes) || quotes.length === 0) {
       const colspan = user.nivel_rol === 'Asesor' ? 4 : 5;
       ordersTbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; color: var(--text-light);">No hay cotizaciones registradas.</td></tr>`;
     } else {
@@ -1227,17 +1227,25 @@ async function loadKanbanAdvisorOptions() {
 // Load Kanban Data
 async function loadCRMBoardData() {
   try {
-    // Load clients for references
-    const cRes = await fetch(`${API_URL}/api/clientes`, { headers: getHeaders() });
-    allClients = await cRes.json();
+    // Load clients for references when role has commercial client access
+    if (user?.nivel_rol !== 'Almacen') {
+      const cRes = await fetch(`${API_URL}/api/clientes`, { headers: getHeaders() });
+      if (cRes.ok) {
+        const cData = await cRes.json();
+        allClients = Array.isArray(cData) ? cData : (cData.data || []);
+      }
+    }
     
     const [qRes, pRes] = await Promise.all([
       fetch(`${API_URL}/api/cotizaciones`, { headers: getHeaders() }),
-      fetch(`${API_URL}/api/prospectos`, { headers: getHeaders() })
+      user?.nivel_rol === 'Almacen'
+        ? Promise.resolve({ ok: true, json: async () => [] })
+        : fetch(`${API_URL}/api/prospectos`, { headers: getHeaders() })
     ]);
     allQuotes = await qRes.json();
-    allProspects = await pRes.json();
-    if (!qRes.ok || !pRes.ok || !Array.isArray(allQuotes) || !Array.isArray(allProspects)) {
+    const prospectsPayload = pRes.ok ? await pRes.json() : [];
+    allProspects = Array.isArray(prospectsPayload) ? prospectsPayload : [];
+    if (!qRes.ok || !Array.isArray(allQuotes)) {
       throw new Error('No fue posible cargar el canal de ventas');
     }
     
@@ -1353,15 +1361,17 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
     const prevLabel = isChg025 && status === 'Entregado' ? 'Revertir' : (prevLabels[status] || '');
     const nextLabel = isChg025 && ['Autorizada', 'Vendido'].includes(status) ? 'Entregar' : (nextLabels[status] || '');
     const isSelected = selectedKanbanQuoteIds.has(Number(q.id));
+    const effectiveAlmacenEstado = q.almacen_estado || (isChg025 && q.estatus === 'Autorizada' ? 'PENDIENTE' : null);
     const warehouseBadgeMap = {
       PENDIENTE: { cls: 'badge-warning', text: 'Pendiente de asignar' },
       RESERVADA: { cls: 'badge-success', text: 'Reservada · Lista para entregar' },
       ENTREGADA: { cls: 'badge-info', text: 'Entregada' }
     };
-    const warehouseBadge = isChg025 && warehouseBadgeMap[q.almacen_estado]
-      ? `<div style="margin-top:6px;"><span class="badge ${warehouseBadgeMap[q.almacen_estado].cls}">${warehouseBadgeMap[q.almacen_estado].text}</span></div>`
+    const warehouseBadge = isChg025 && warehouseBadgeMap[effectiveAlmacenEstado]
+      ? `<div style="margin-top:6px;"><span class="badge ${warehouseBadgeMap[effectiveAlmacenEstado].cls}">${warehouseBadgeMap[effectiveAlmacenEstado].text}</span></div>`
       : '';
-    const warehouseAssignAction = user?.nivel_rol === 'Almacen' && isChg025 && q.almacen_estado === 'PENDIENTE'
+    const isPendingWarehouse = q.almacen_estado === 'PENDIENTE' || (!q.almacen_estado && q.estatus === 'Autorizada');
+    const warehouseAssignAction = user?.nivel_rol === 'Almacen' && isChg025 && isPendingWarehouse
       ? `<div style="margin-top:8px;"><button type="button" class="btn btn-primary" style="width:100%;padding:6px 8px;font-size:12px;" onclick="event.stopPropagation(); openWarehouseAssignment(${q.id})">📦 Asignar tamaños</button></div>`
       : '';
     
@@ -1807,7 +1817,8 @@ async function showQuoteDetails(quoteId) {
 
     const assignWarehouseBtn = document.getElementById('btn-assign-warehouse-sizes');
     if (assignWarehouseBtn) {
-      const canAssignWarehouse = user && user.nivel_rol === 'Almacen' && isChg025 && quote.almacen_estado === 'PENDIENTE';
+      const isQuotePendingWarehouse = quote.almacen_estado === 'PENDIENTE' || (!quote.almacen_estado && quote.estatus === 'Autorizada');
+      const canAssignWarehouse = user && user.nivel_rol === 'Almacen' && isChg025 && isQuotePendingWarehouse;
       assignWarehouseBtn.style.display = canAssignWarehouse ? 'inline-flex' : 'none';
       assignWarehouseBtn.onclick = canAssignWarehouse
         ? () => {
@@ -3238,37 +3249,143 @@ window.openWarehouseAssignment = async function(quoteId, quoteOverride = null) {
   const request = quoteOverride
     || warehouseRequests.find(item => Number(item.id) === Number(quoteId))
     || allQuotes.find(item => Number(item.id) === Number(quoteId));
-  if (!request) return;
   try {
     const response = await fetch(`${API_URL}/api/almacen/solicitudes/${quoteId}/disponibilidad`, { headers: getHeaders() });
     const availability = await response.json();
     if (!response.ok) throw new Error(availability.error || 'No fue posible consultar disponibilidad.');
+    window.currentWarehouseAvailability = Array.isArray(availability) ? availability : [];
+    const itemsToRender = Array.isArray(request?.items) && request.items.length > 0
+      ? request.items
+      : window.currentWarehouseAvailability.map(row => ({
+          id: row.cotizacion_detalle_id,
+          producto_id: row.producto_id,
+          producto_nombre: row.producto_nombre || `Producto #${row.producto_id}`,
+          cantidad_ordenada: row.cantidad_ordenada || 0
+        }));
+    if (!itemsToRender.length) return;
     document.getElementById('warehouse-assignment-quote-id').value = quoteId;
-    document.getElementById('warehouse-assignment-title').textContent = `Asignar tamaños · ${request.folio_cotizacion}`;
+    document.getElementById('warehouse-assignment-title').textContent = `Asignar tamaños · ${request?.folio_cotizacion || `#${quoteId}`}`;
     const container = document.getElementById('warehouse-assignment-items');
-    container.innerHTML = (request.items || []).map(item => {
+    container.innerHTML = itemsToRender.map(item => {
       const available = availability.find(row => Number(row.cotizacion_detalle_id) === Number(item.id));
+      const catalogSizes = Array.isArray(available?.tamanos_catalogo) && available.tamanos_catalogo.length > 0
+        ? available.tamanos_catalogo
+        : (getSizesForProduct(item.producto_id || item.producto_nombre).length > 0
+            ? getSizesForProduct(item.producto_id || item.producto_nombre)
+            : ['BT1', 'BT2', 'BT3', 'BW1', 'BW2', 'PT1', 'PT2', 'PT3', 'PW1', 'PW2']);
       const lots = Array.isArray(available?.lotes) && available.lotes.length > 0
         ? available.lotes
         : (available?.tamanos || []).map(size => ({ ...size, lote: '' }));
       const controls = lots.length
         ? lots.map(entry => {
             const lotLabel = entry.lote ? ` · Lote ${escapeHtml(entry.lote)}` : ' · Sin lote';
-            return `<label style="display:grid;grid-template-columns:minmax(140px,1fr) 130px;gap:10px;align-items:center;margin-top:8px;">
-            <span><strong>${escapeHtml(entry.tamano)}</strong>${lotLabel} · disponible ${Number(entry.disponible).toLocaleString('es-MX')}</span>
-            <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(entry.disponible)}" step="1" value="0" data-detail-id="${item.id}" data-product-id="${item.producto_id}" data-size="${escapeHtml(entry.tamano)}" data-lote="${escapeHtml(entry.lote || '')}">
-          </label>`;
+            if (entry.tamano) {
+              return `<label class="warehouse-assignment-row" style="display:grid;grid-template-columns:minmax(140px,1fr) 130px;gap:10px;align-items:center;margin-top:8px;">
+              <span><strong>${escapeHtml(entry.tamano)}</strong>${lotLabel} · disponible ${Number(entry.disponible).toLocaleString('es-MX')}</span>
+              <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(entry.disponible)}" step="any" value="0" data-detail-id="${item.id}" data-product-id="${item.producto_id}" data-size="${escapeHtml(entry.tamano)}" data-lote="${escapeHtml(entry.lote || '')}">
+            </label>`;
+            }
+            const defaultSize = catalogSizes[0] || 'BT1';
+            const sizeOptions = catalogSizes.map(size => `<option value="${escapeHtml(size)}">${escapeHtml(size)}</option>`).join('');
+            return `<div class="warehouse-assignment-row" style="display:grid;grid-template-columns:minmax(110px,140px) minmax(130px,1fr) 120px;gap:8px;align-items:center;margin-top:8px;">
+              <select class="form-input warehouse-lot-size-select" aria-label="Tamaño para lote ${escapeHtml(entry.lote || '')}" onchange="onWarehouseLotSizeChange(this)">
+                ${sizeOptions}
+              </select>
+              <span><strong>Lote ${escapeHtml(entry.lote || 'General')}</strong> · disponible ${Number(entry.disponible).toLocaleString('es-MX')}</span>
+              <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(entry.disponible)}" step="any" value="0" data-detail-id="${item.id}" data-product-id="${item.producto_id}" data-size="${escapeHtml(defaultSize)}" data-lote="${escapeHtml(entry.lote || '')}">
+            </div>`;
           }).join('')
         : '<p style="color:var(--danger);margin:8px 0 0;">Este producto no tiene existencia disponible registrada por tamaño.</p>';
+      const addRowButton = lots.length
+        ? `<div class="warehouse-extra-rows" id="warehouse-extra-rows-${item.id}"></div>
+           <div style="margin-top:10px;">
+             <button type="button" class="btn btn-secondary" style="width:auto;padding:4px 10px;font-size:12px;" onclick="addWarehouseAssignmentRow(${item.id}, ${item.producto_id})">➕ Seleccionar otro tamaño / lote</button>
+           </div>`
+        : '';
       return `<fieldset class="card" style="margin-bottom:12px;padding:14px;" data-assignment-detail="${item.id}" data-requested="${Number(item.cantidad_ordenada || 0)}">
         <legend style="font-weight:700;">${escapeHtml(item.producto_nombre)} · solicitado ${Number(item.cantidad_ordenada || 0)}</legend>
         ${controls}
+        ${addRowButton}
       </fieldset>`;
     }).join('');
     openModal('warehouse-assignment-modal');
   } catch (error) {
     alert(error.message);
   }
+};
+
+window.onWarehouseLotSizeChange = function(selectEl) {
+  const row = selectEl?.closest('.warehouse-assignment-row');
+  const input = row?.querySelector('.warehouse-size-quantity');
+  if (input && selectEl) {
+    input.dataset.size = selectEl.value;
+  }
+};
+
+window.onWarehouseRowSelectChange = function(controlEl) {
+  const row = controlEl?.closest('.warehouse-assignment-row');
+  if (!row) return;
+  const sizeSelect = row.querySelector('.warehouse-row-size-select');
+  const lotSelect = row.querySelector('.warehouse-row-lot-select');
+  const qtyInput = row.querySelector('.warehouse-size-quantity');
+  if (qtyInput && sizeSelect) {
+    qtyInput.dataset.size = sizeSelect.value;
+  }
+  if (qtyInput && lotSelect) {
+    qtyInput.dataset.lote = lotSelect.value;
+    const selectedOption = lotSelect.options[lotSelect.selectedIndex];
+    const maxAvail = Number(selectedOption?.dataset?.disponible || 0);
+    if (maxAvail > 0) {
+      qtyInput.max = String(maxAvail);
+    }
+  }
+};
+
+window.removeWarehouseAssignmentRow = function(buttonEl) {
+  const row = buttonEl?.closest('.warehouse-assignment-row');
+  if (row) row.remove();
+};
+
+window.addWarehouseAssignmentRow = function(detailId, productId) {
+  const extraContainer = document.getElementById(`warehouse-extra-rows-${detailId}`);
+  if (!extraContainer) return;
+  const available = (window.currentWarehouseAvailability || []).find(row => Number(row.cotizacion_detalle_id) === Number(detailId));
+  const catalogSizes = Array.isArray(available?.tamanos_catalogo) && available.tamanos_catalogo.length > 0
+    ? available.tamanos_catalogo
+    : (getSizesForProduct(Number(productId)).length > 0
+        ? getSizesForProduct(Number(productId))
+        : ['BT1', 'BT2', 'BT3', 'BW1', 'BW2', 'PT1', 'PT2', 'PT3', 'PW1', 'PW2']);
+  const lots = Array.isArray(available?.lotes) && available.lotes.length > 0
+    ? available.lotes
+    : (available?.tamanos || []).map(size => ({ ...size, lote: '' }));
+  const allSizes = [...new Set([
+    ...lots.map(l => l.tamano).filter(Boolean),
+    ...catalogSizes
+  ])];
+  const defaultSize = allSizes[0] || 'BT1';
+  const defaultLotEntry = lots[0] || { lote: '', disponible: 0 };
+  const sizeOptionsHtml = allSizes.map(size => `<option value="${escapeHtml(size)}">${escapeHtml(size)}</option>`).join('');
+  const lotOptionsHtml = lots.map(entry => {
+    const label = entry.lote
+      ? `${escapeHtml(entry.lote)}${entry.tamano ? ` (${escapeHtml(entry.tamano)})` : ''} · disp. ${Number(entry.disponible).toLocaleString('es-MX')}`
+      : `Sin lote (${escapeHtml(entry.tamano || defaultSize)}) · disp. ${Number(entry.disponible).toLocaleString('es-MX')}`;
+    return `<option value="${escapeHtml(entry.lote || '')}" data-disponible="${Number(entry.disponible || 0)}">${label}</option>`;
+  }).join('');
+
+  const row = document.createElement('div');
+  row.className = 'warehouse-assignment-row';
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(100px,130px) minmax(140px,1fr) 110px auto;gap:8px;align-items:center;margin-top:8px;';
+  row.innerHTML = `
+    <select class="form-input warehouse-row-size-select" aria-label="Seleccionar tamaño" onchange="onWarehouseRowSelectChange(this)">
+      ${sizeOptionsHtml}
+    </select>
+    <select class="form-input warehouse-row-lot-select" aria-label="Seleccionar lote" onchange="onWarehouseRowSelectChange(this)">
+      ${lotOptionsHtml}
+    </select>
+    <input class="form-input warehouse-size-quantity" type="number" min="0" max="${Number(defaultLotEntry.disponible || 0)}" step="any" value="0" data-detail-id="${detailId}" data-product-id="${productId}" data-size="${escapeHtml(defaultSize)}" data-lote="${escapeHtml(defaultLotEntry.lote || '')}">
+    <button type="button" class="btn btn-secondary" style="width:auto;padding:4px 8px;color:var(--danger);" onclick="removeWarehouseAssignmentRow(this)" title="Quitar fila">&times;</button>
+  `;
+  extraContainer.appendChild(row);
 };
 
 document.getElementById('warehouse-assignment-form')?.addEventListener('submit', async event => {
@@ -3278,8 +3395,15 @@ document.getElementById('warehouse-assignment-form')?.addEventListener('submit',
     const details = [...document.querySelectorAll('[data-assignment-detail]')].map(fieldset => {
       const detailId = Number(fieldset.dataset.assignmentDetail);
       const requested = Number(fieldset.dataset.requested);
-      const assignments = [...fieldset.querySelectorAll('.warehouse-size-quantity')]
+      const rawAssignments = [...fieldset.querySelectorAll('.warehouse-size-quantity')]
         .map(input => {
+          const row = input.closest('.warehouse-assignment-row');
+          const lotSizeSelect = row?.querySelector('.warehouse-lot-size-select');
+          const rowSizeSelect = row?.querySelector('.warehouse-row-size-select');
+          const rowLotSelect = row?.querySelector('.warehouse-row-lot-select');
+          if (lotSizeSelect && lotSizeSelect.value) input.dataset.size = lotSizeSelect.value;
+          if (rowSizeSelect && rowSizeSelect.value) input.dataset.size = rowSizeSelect.value;
+          if (rowLotSelect) input.dataset.lote = rowLotSelect.value;
           const item = {
             producto_id: Number(input.dataset.productId),
             tamano: input.dataset.size,
@@ -3289,6 +3413,16 @@ document.getElementById('warehouse-assignment-form')?.addEventListener('submit',
           return item;
         })
         .filter(item => item.cantidad > 0);
+      const mergedMap = new Map();
+      for (const item of rawAssignments) {
+        const key = `${item.producto_id}::${String(item.tamano || '').toUpperCase()}::${String(item.lote || '').toUpperCase()}`;
+        if (mergedMap.has(key)) {
+          mergedMap.get(key).cantidad += item.cantidad;
+        } else {
+          mergedMap.set(key, { ...item });
+        }
+      }
+      const assignments = [...mergedMap.values()];
       const assigned = assignments.reduce((sum, item) => sum + item.cantidad, 0);
       if (assigned !== requested) throw new Error(`La partida ${detailId} requiere ${requested}; asignaste ${assigned}.`);
       return { cotizacion_detalle_id: detailId, asignaciones: assignments };

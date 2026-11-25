@@ -948,4 +948,33 @@ Implementados en la rama. El detalle está en `docs/cambios/CHG-027/casos-tdd.md
 - Verifica que en `moveQuoteStatus()` (`public/js/app.js`), al revertir una solicitud `CHG-025` desde `Entregado` (`direction === 'up'`), el estado destino sea `Vendido` (manteniendo reserva activa) para todas las condiciones.
 - Estado: passed.
 
+### TDD-TC-152 — `GET /api/cotizaciones` permite lectura al rol `Almacen` para Canal de Ventas y bloquea mutaciones comerciales
+
+- Cubre: BDD-SC-138, PRD-FR-069.
+- Archivo: `test/chg034_almacen_asignacion_integral.test.js`.
+- Verifica que `Almacen` reciba `200` en `GET /api/cotizaciones` (con `tamano` en `items` y `almacen_estado = 'PENDIENTE'` normalizado para solicitudes `CHG-025` `Autorizada` con `almacen_estado` nulo) y reciba `403` en `POST /api/cotizaciones` y `PUT /api/cotizaciones/:id/decision`.
+- Estado: passed.
+
+### TDD-TC-153 — `ensureQuotationsSchema` asegura `cotizacion_reservas` (`lote`) y `GET /api/almacen/solicitudes/:id/disponibilidad` preserva lotes con o sin tamaño previo
+
+- Cubre: BDD-SC-139, BDD-SC-140, PRD-FR-069.
+- Archivo: `test/chg034_almacen_asignacion_integral.test.js`.
+- Verifica que `db.js` asegure `cotizacion_reservas`, columna `lote`, índice `uq_cotizacion_reserva_activa_detalle_tamano_lote` y backfill de `almacen_estado = 'PENDIENTE'` dentro de `ensureQuotationsSchema()`, y que `GET /api/almacen/solicitudes/:id/disponibilidad` autorrecupere esquema y exponga lotes con o sin tamaño de entrada junto con `tamanos_catalogo`.
+- Estado: passed.
+
+### TDD-TC-154 — `POST /api/almacen/solicitudes/:id/asignaciones` autorrecupera esquema y reserva seleccionando tamaños sobre lotes con o sin tamaño previo
+
+- Cubre: BDD-SC-139, PRD-FR-069.
+- Archivo: `test/chg034_almacen_asignacion_integral.test.js`.
+- Verifica que `POST /api/almacen/solicitudes/:id/asignaciones` reintente tras `ensureQuotationsSchema()` ante error `42703`/`42P01`, acepte solicitudes autorizadas con `almacen_estado` nulo y permita reservar seleccionando tamaños y lotes tanto sobre lotes con tamaño explícito como sobre lotes registrados sin tamaño en `almacen_movimientos`.
+- Estado: passed.
+
+### TDD-TC-155 — `loadCRMBoardData`, `openWarehouseAssignment` y `security.js` permiten a `Almacen` cargar Canal de Ventas y seleccionar tamaños y lotes en UI
+
+- Cubre: BDD-SC-138, BDD-SC-139, PRD-FR-069.
+- Archivo: `test/chg034_almacen_asignacion_integral.test.js`.
+- Verifica que `public/js/security.js` autorice `openWarehouseAssignment`, `addWarehouseAssignmentRow` y `onWarehouseLotSizeChange` en `allowedHandlerFunctions`, que `loadCRMBoardData()` en `public/js/app.js` no falle para `Almacen` por `/api/clientes` o `/api/prospectos`, que `openWarehouseAssignment()` y `addWarehouseAssignmentRow()` permitan seleccionar tamaños y lotes (incluyendo selector de tamaño para lotes sin tamaño previo y consolidación de pares `(tamano, lote)`), y que `public/index.html` actualice la versión de assets.
+- Estado: passed.
+
+
 
