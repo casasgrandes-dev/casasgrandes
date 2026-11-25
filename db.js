@@ -73,13 +73,52 @@ async function ensureQuotationsSchema() {
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cobro_confirmado_en TIMESTAMP',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_en TIMESTAMP',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS decision_por_id INTEGER REFERENCES asesores(id)',
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS autorizado_por_id INTEGER REFERENCES asesores(id)',
     'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT',
-    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT'
+    'ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS almacen_estado TEXT',
+    `CREATE TABLE IF NOT EXISTS cotizacion_reservas (
+      id SERIAL PRIMARY KEY,
+      cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+      cotizacion_detalle_id INTEGER NOT NULL REFERENCES cotizacion_detalles(id) ON DELETE CASCADE,
+      producto_id INTEGER NOT NULL REFERENCES productos(id),
+      tamano TEXT NOT NULL,
+      lote TEXT,
+      cantidad NUMERIC(14,3) NOT NULL CHECK (cantidad > 0),
+      estado TEXT NOT NULL DEFAULT 'ACTIVA' CHECK (estado IN ('ACTIVA', 'CONSUMIDA', 'LIBERADA')),
+      reservado_por_id INTEGER NOT NULL REFERENCES asesores(id),
+      reservado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    'ALTER TABLE cotizacion_reservas ADD COLUMN IF NOT EXISTS lote TEXT',
+    'DROP INDEX IF EXISTS uq_cotizacion_reserva_activa_detalle_tamano',
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_cotizacion_reserva_activa_detalle_tamano_lote
+      ON cotizacion_reservas (cotizacion_detalle_id, UPPER(tamano), UPPER(COALESCE(lote, '')))
+      WHERE estado = 'ACTIVA'`,
+    'CREATE INDEX IF NOT EXISTS idx_cotizacion_reservas_disponibilidad ON cotizacion_reservas (producto_id, UPPER(tamano), estado)',
+    `UPDATE cotizaciones q
+     SET flujo_version = 'CHG-025'
+     WHERE q.flujo_version = 'LEGACY'
+       AND EXISTS (
+         SELECT 1 FROM cotizacion_detalles d
+         WHERE d.cotizacion_id = q.id AND d.contrato_precio_version = 'CHG-025'
+       )`,
+    `UPDATE cotizaciones q
+     SET almacen_estado = 'PENDIENTE'
+     WHERE q.almacen_estado IS NULL
+       AND q.flujo_version = 'CHG-025'
+       AND (
+         q.estatus = 'Autorizada'
+         OR (q.estatus = 'Vendido' AND COALESCE(q.venta_confirmada, 0) = 1 AND COALESCE(q.cobro_confirmado, 0) = 1)
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM cotizacion_reservas r
+         WHERE r.cotizacion_id = q.id AND r.estado IN ('ACTIVA', 'CONSUMIDA')
+       )`
   ];
   for (const sql of statements) {
     try {
       await pool.query(sql);
-} catch (_err) {
+    } catch (_err) {
       // Non-fatal per-statement fallback: ensures failure on one legacy column never blocks critical columns like flujo_version
       console.warn(`[ensureQuotationsSchema] DDL warning (${_err.code || 'ERR'}): ${_err.message} for SQL: "${sql}"`);
     }

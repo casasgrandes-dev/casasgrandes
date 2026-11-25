@@ -420,3 +420,28 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
 - Calibración: Riesgo R2 (Asignación de bolsas en Almacén por tamaño y múltiples lotes).
 - Fase Roja: `node --test test/chg032_almacen_lotes_asignacion.test.js` (`TDD-TC-142..145`) y `npx cucumber-js features/chg032_almacen_lotes_asignacion.feature` (`BDD-SC-131..133`) fallaron antes de la implementación.
 - Fase Verde y Regresión: `npm run lint`, `npm test` (190 pass, 3 skipped sin `TEST_POSTGRES_URL`), `npm run test:bdd` (32/32 escenarios), `npm run test:contract`, `npm run lint:openapi` y `npm run test:coverage` (46.49% líneas/sentencias, 63.97% ramas, 81.96% funciones) aprobados con salida 0. (`npm run audit:deps` reportó aviso transitivo preexistente de `picomatch` bajo `sqlite3`/`node-gyp`).
+
+## Trazabilidad CHG-033
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-068 | ADR-016, ADR-020 | BDD-SC-134..137 | TDD-TC-146..151 | `server.js`, `public/js/app.js`, `public/index.html` | EVD-029 | implemented-tested-local |
+
+## Trazabilidad CHG-034
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-069 | ADR-016, ADR-020 | BDD-SC-138..140 | TDD-TC-152..155 | `db.js`, `server.js`, `public/js/security.js`, `public/js/app.js`, `public/index.html` | EVD-030 | implemented-tested-local |
+
+## EVD-030 — Evidencia local CHG-034
+
+- Fecha: 2026-11-25.
+- Calibración: Riesgo R2 (Habilitación integral de asignación por tamaños y lotes para Almacén).
+- Causas raíz corregidas:
+  1. `public/js/security.js` no incluía `openWarehouseAssignment` en `allowedHandlerFunctions`, por lo que `installInnerHtmlGuard()` eliminaba el atributo `onclick` de los botones `"Asignar tamaños"` en la tabla de Solicitudes de Almacén y en las tarjetas del Canal de Ventas.
+  2. El middleware perimetral de `/api/cotizaciones` bloqueaba con HTTP `403` al rol `Almacen` en `GET /api/cotizaciones`, y `loadCRMBoardData()` fallaba para `Almacen` al requerir `/api/clientes` y `/api/prospectos`, dejando vacío el Canal de Ventas.
+  3. `cotizacion_reservas` (`lote` e índice `uq_cotizacion_reserva_activa_detalle_tamano_lote`) y el backfill de `almacen_estado = 'PENDIENTE'` no estaban incluidos en `ensureQuotationsSchema()`, y el fallback de `GET /api/almacen/solicitudes/:id/disponibilidad` reemplazaba `m.lote` por `'' AS lote` o excluía lotes registrados sin tamaño previo.
+- Fase Roja: `node --test test/chg034_almacen_asignacion_integral.test.js` (`0 pass, 4 fail`) y `npx cucumber-js features/chg034_almacen_asignacion_integral.feature` (`3 failed`) fallaron antes de la implementación.
+- Fase Verde y Regresión: `npm run lint`, `npm test` / `npm run test:coverage` (`200 pass, 0 fail, 3 skipped` sin `TEST_POSTGRES_URL`; cobertura 47.56% líneas/sentencias, 64.5% ramas, 82.44% funciones), `npm run test:bdd` (`39/39` escenarios, `207/207` pasos), `npm run test:contract` (`4/4`) y `npm run lint:openapi` (`4/4`) ejecutados con código de salida 0.
+
+

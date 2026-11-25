@@ -1124,3 +1124,32 @@ BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventa
 - **Entonces** la respuesta tiene código `200`
 - **Y** la solicitud regresa a `estatus = 'Vendido'` con `almacen_estado = 'RESERVADA'` y reserva reactivada en `ACTIVA`.
 
+## Escenarios BDD del Incremento CHG-034
+
+### BDD-SC-138 — El rol Almacen puede consultar cotizaciones para el Canal de Ventas pero no ejecutar mutaciones comerciales
+
+- **Dado** un usuario autenticado con rol `Almacen`
+- **Y** una solicitud `CHG-025` de condición `CREDITO` en `estatus = 'Autorizada'` con `almacen_estado` nulo
+- **Cuando** consulta `GET /api/cotizaciones`
+- **Entonces** la respuesta tiene código `200` y expone `almacen_estado = 'PENDIENTE'`
+- **Pero** cuando intenta ejecutar `PUT /api/cotizaciones/:id/decision`
+- **Entonces** la respuesta tiene código `403`.
+
+### BDD-SC-139 — Disponibilidad y asignación permiten seleccionar tamaños y lotes incluso sobre lotes registrados sin tamaño previo o con autorrecuperación de esquema
+
+- **Dado** un usuario autenticado con rol `Almacen`
+- **Y** una solicitud `CHG-025` en `estatus = 'Autorizada'` con `100` bolsas solicitadas
+- **Y** existencias físicas en `almacen_movimientos` con lote `LOTE-SIN-TAM` (`60` bolsas sin tamaño) y lote `LOTE-BT2` (`50` bolsas en tamaño `BT2`)
+- **Cuando** consulta `GET /api/almacen/solicitudes/:id/disponibilidad`
+- **Entonces** la respuesta tiene código `200` y expone ambos lotes junto con `tamanos_catalogo`
+- **Cuando** asigna `60` bolsas seleccionando tamaño `BT1` del lote `LOTE-SIN-TAM` y `40` bolsas de tamaño `BT2` del lote `LOTE-BT2` en `POST /api/almacen/solicitudes/:id/asignaciones`
+- **Entonces** la respuesta tiene código `201`, la solicitud pasa a `estatus = 'Vendido'` y `almacen_estado = 'RESERVADA'`, y se registran ambas reservas activas con tamaño y lote.
+
+### BDD-SC-140 — Solicitudes de Almacén incluye solicitudes autorizadas cuyo almacen_estado quedó nulo en esquemas previos
+
+- **Dado** un usuario autenticado con rol `Almacen`
+- **Y** una solicitud `CHG-025` de condición `APARTADO` en `estatus = 'Autorizada'` con `almacen_estado` nulo
+- **Cuando** consulta `GET /api/almacen/solicitudes`
+- **Entonces** la respuesta tiene código `200` e incluye la solicitud con `almacen_estado = 'PENDIENTE'`.
+
+

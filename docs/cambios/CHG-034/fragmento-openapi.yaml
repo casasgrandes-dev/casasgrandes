@@ -1,0 +1,21 @@
+# Fragmento OpenAPI — CHG-034
+# Este cambio no modifica `docs/api/bot-v1.yaml` ni el API de bots `/api/v1/bot`.
+# Impacto en endpoints internos de la aplicación (`server.js`):
+#
+# - `GET /api/cotizaciones`
+#   - Permite lectura (`200`) al rol `Almacen` además de `COMMERCIAL_ROLES`,
+#     conservando `tamano` en `items` exclusivamente para `Almacen` y normalizando
+#     `almacen_estado = 'PENDIENTE'` cuando una solicitud `CHG-025` `Autorizada`
+#     tenga `almacen_estado` nulo.
+#
+# - `GET /api/almacen/solicitudes/:id/disponibilidad`
+#   - Incluye en cada partida `producto_nombre`, `cantidad_ordenada`,
+#     `tamanos_catalogo`, `tamanos` y `lotes` (incluyendo lotes con stock > 0
+#     registrados con o sin tamaño previo, sin perder `lote` ante autorrecuperación
+#     de `cotizacion_reservas`).
+#
+# - `POST /api/almacen/solicitudes/:id/asignaciones`
+#   - Autorrecupera esquema de `cotizacion_reservas` (`lote`), acepta solicitudes
+#     autorizadas con `almacen_estado` nulo o `PENDIENTE`, y valida disponibilidad
+#     por `(producto_id, tamano, lote)` considerando lotes con tamaño explícito
+#     o lotes registrados sin tamaño en `almacen_movimientos`.

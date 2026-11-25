@@ -1,0 +1,3 @@
+# Registro de decisiones — CHG-034
+
+- 2026-11-25: Para cumplir en operación real el flujo de `ADR-016` y `ADR-020` (`CHG-032` y `CHG-033`), se habilita la lectura `GET /api/cotizaciones` para el rol `Almacen` (manteniendo `403` en mutaciones comerciales), se incorpora `cotizacion_reservas` (`lote` e índice único por detalle/tamaño/lote) y el backfill de `almacen_estado = 'PENDIENTE'` dentro de `ensureQuotationsSchema()`, se preserva el desglose de lotes en `GET /api/almacen/solicitudes/:id/disponibilidad` (incluyendo lotes con o sin tamaño de entrada) y se habilitan selectores de tamaño y lote en `#warehouse-assignment-modal`.
