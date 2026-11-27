@@ -1,0 +1,16 @@
+# Fragmento OpenAPI — CHG-035
+# Este cambio no modifica `docs/api/bot-v1.yaml` ni el API de bots `/api/v1/bot`.
+# Impacto en endpoints internos de la aplicación (`server.js`):
+#
+# - `GET /api/almacen/solicitudes`, `GET /api/almacen/solicitudes/:id/disponibilidad`,
+#   `POST /api/almacen/solicitudes/:id/asignaciones`
+#   - Roles permitidos (ADR-021): `Almacen` y `Administrador` (`403` para el resto).
+#
+# - `GET /api/cotizaciones`
+#   - Adjunta `reservas` activas (`cotizacion_detalle_id`, `producto_id`, `tamano`, `lote`, `cantidad`)
+#     exclusivamente para `Almacen` y `Administrador`.
+#
+# - `PUT /api/cotizaciones/:id/status`
+#   - Permite al rol `Almacen` únicamente la transición `estatus: 'Entregado'` sobre solicitudes
+#     `CHG-025` con `almacen_estado = 'RESERVADA'`; rechaza con `403` cualquier otra transición
+#     o cotización `LEGACY`, y con `409` si la solicitud no está reservada.

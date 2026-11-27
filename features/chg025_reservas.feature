@@ -9,8 +9,8 @@ Característica: Reservas CHG-025
     Y no se escribe ninguna reserva
 
 
-  Escenario: BDD-SC-121 Administrador consulta lotes por tamaño y registra salida manual de semilla mientras Solicitudes permanece exclusivo de Almacén
+  Escenario: BDD-SC-121 Administrador consulta lotes por tamaño, registra salida manual de semilla y consulta solicitudes de reserva (ADR-021)
     Dado un administrador ficticio autenticado en Almacén
     Cuando consulta lotes disponibles del híbrido 7 para el tamaño "BT1" y registra una salida manual de 10 bolsas "BT1"
     Entonces la consulta de lotes responde 200 y el movimiento manual responde 201
-    Y si el administrador intenta consultar las solicitudes de reserva de Almacén recibe 403
+    Y si el administrador intenta consultar las solicitudes de reserva de Almacén recibe 200

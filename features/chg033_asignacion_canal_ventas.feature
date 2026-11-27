@@ -19,10 +19,10 @@ Característica: Asignación en Almacén y canal de ventas CHG-033
     Y la solicitud permanece en estatus "Autorizada" y almacen_estado "PENDIENTE" en CHG-033
     Y no se registra ninguna reserva en CHG-033
 
-  Escenario: BDD-SC-136 Rol distinto a Almacen recibe 403 al intentar asignar tamaños
+  Escenario: BDD-SC-136 Rol distinto a Almacen o Administrador recibe 403 al intentar asignar tamaños
     Dado una solicitud CHG-025 de tipo "APARTADO" en estatus "Autorizada" con almacen_estado "PENDIENTE" para CHG-033
     Y existencias físicas en tamaños "BT1" (120) y "BT2" (100) en CHG-033
-    Y un usuario autenticado con rol "Administrador" en CHG-033
+    Y un usuario autenticado con rol "Coordinador" en CHG-033
     Cuando asigna 100 bolsas de "BT1" y 100 bolsas de "BT2" en CHG-033
     Entonces la respuesta tiene código 403 en CHG-033
 

@@ -33,7 +33,7 @@
     'changeQuoteQuantity', 'click', 'closeModal', 'confirmCashProposal', 'decideCommercialRequest',
     'deleteCatalogClient', 'deleteCiclo', 'deleteCuentaClave', 'deleteEtapa',
     'deleteGlobalMeta', 'deletePlanActivity', 'deleteProducto', 'deleteWarehouseMovement',
-    'desasociarCliente', 'disolverGrupoAsociados', 'editCatalogClient',
+    'deliverReservedQuote', 'desasociarCliente', 'disolverGrupoAsociados', 'editCatalogClient',
     'editEtapa', 'find', 'loadWarehouseMovements', 'loadWarehouseRequests', 'moveQuoteStatus',
     'onDiscountSliderChange', 'onFinalPriceInputChange', 'onFinalPriceInputBlur',
     'onWarehouseLotSizeChange', 'onWarehouseRowSelectChange',

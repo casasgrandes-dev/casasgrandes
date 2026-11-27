@@ -976,5 +976,34 @@ Implementados en la rama. El detalle está en `docs/cambios/CHG-027/casos-tdd.md
 - Verifica que `public/js/security.js` autorice `openWarehouseAssignment`, `addWarehouseAssignmentRow` y `onWarehouseLotSizeChange` en `allowedHandlerFunctions`, que `loadCRMBoardData()` en `public/js/app.js` no falle para `Almacen` por `/api/clientes` o `/api/prospectos`, que `openWarehouseAssignment()` y `addWarehouseAssignmentRow()` permitan seleccionar tamaños y lotes (incluyendo selector de tamaño para lotes sin tamaño previo y consolidación de pares `(tamano, lote)`), y que `public/index.html` actualice la versión de assets.
 - Estado: passed.
 
+### TDD-TC-156 — RBAC `ADR-021` para asignación previa (`Almacen`/`Administrador`) y entrega (`Almacen`/`Administrador`/`Coordinador`)
+
+- Cubre: BDD-SC-141, BDD-SC-144, PRD-FR-070.
+- Archivo: `test/chg035_asignacion_previa_entrega.test.js`.
+- Verifica que `Administrador` y `Almacen` accedan a `/api/almacen/solicitudes`, `/disponibilidad` y `/asignaciones` mientras `Coordinador` y `Asesor` reciben `403`, y que `Almacen` solo pueda ejecutar `PUT /api/cotizaciones/:id/status` hacia `Entregado` cuando `almacen_estado === 'RESERVADA'` (`403` para `Cancelada`, reversiones y cotizaciones `LEGACY`).
+- Estado: passed.
+
+### TDD-TC-157 — Flujo atómico de asignación previa y entrega física descontando tamaños y lotes reservados
+
+- Cubre: BDD-SC-141, BDD-SC-142, BDD-SC-143, PRD-FR-070.
+- Archivo: `test/chg035_asignacion_previa_entrega.test.js`.
+- Verifica que al pasar a `Entregado` una solicitud `RESERVADA`, `almacen_movimientos` registre la salida física con el mismo `tamano` y `lote` de `cotizacion_reservas`, y que entregar una solicitud `PENDIENTE` devuelva `409`.
+- Estado: passed.
+
+### TDD-TC-158 — `GET /api/cotizaciones` expone `reservas` activas solo a `Almacen` y `Administrador`
+
+- Cubre: PRD-FR-070, ADR-021.
+- Archivo: `test/chg035_asignacion_previa_entrega.test.js`.
+- Verifica que `GET /api/cotizaciones` adjunte `reservas` activas (tamaño, lote, cantidad) para `Almacen` y `Administrador` y las omita para `Coordinador` y `Asesor`.
+- Estado: passed.
+
+### TDD-TC-159 — UI de asignación previa para `Almacen`/`Administrador` y botón `"Marcar como Entregado"` en escritorio y móvil
+
+- Cubre: BDD-SC-141, BDD-SC-142, BDD-SC-143, PRD-FR-070.
+- Archivo: `test/chg035_asignacion_previa_entrega.test.js`.
+- Verifica `#tab-solicitudes`, `"📦 Asignar tamaños"`, desglose de reservas en *Detalle de Cotización*, botón `"🚚 Marcar como Entregado"` (`#btn-deliver-reserved-quote` y tarjeta Kanban), whitelist de `deliverReservedQuote` en `public/js/security.js` y actualización de versión de assets en `public/index.html`.
+- Estado: passed.
+
+
 
 
