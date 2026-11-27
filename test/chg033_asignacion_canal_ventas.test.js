@@ -250,10 +250,10 @@ test('TDD-TC-147: Idempotencia (replay) devuelve estatus Vendido y disponibilida
   }
 });
 
-test('TDD-TC-148: RBAC estricto rechaza con 403 a Administrador, Coordinador y Asesor en disponibilidad y asignaciones', async () => {
+test('TDD-TC-148: RBAC estricto rechaza con 403 a Coordinador y Asesor en disponibilidad y asignaciones (ADR-021)', async () => {
   const origGet = db.get;
   try {
-    for (const [idx, role] of ['Administrador', 'Coordinador', 'Asesor'].entries()) {
+    for (const [idx, role] of ['Coordinador', 'Asesor'].entries()) {
       const user = makeUser(role, 70 + idx);
       const token = makeToken(user);
       db.get = async sql => (String(sql).includes('FROM asesores') ? user : null);
@@ -350,7 +350,7 @@ test('TDD-TC-150: UI en index.html y app.js soporta asignación desde Kanban/Det
     appJs.indexOf('window.toggleQuoteEditMode =')
   );
   assert.match(showDetailsSection, /btn-assign-warehouse-sizes/, 'showQuoteDetails debe controlar #btn-assign-warehouse-sizes');
-  assert.match(showDetailsSection, /user\.nivel_rol\s*===\s*['"]Almacen['"]/, 'showQuoteDetails debe restringir asignación a rol Almacen');
+  assert.match(showDetailsSection, /canAssignWarehouseSizes\(\)/, 'showQuoteDetails debe restringir asignación a roles autorizados (ADR-021)');
   assert.match(showDetailsSection, /almacen_estado\s*===\s*['"]PENDIENTE['"]/, 'showQuoteDetails debe validar almacen_estado === PENDIENTE');
 
   const kanbanSection = appJs.slice(
@@ -358,7 +358,7 @@ test('TDD-TC-150: UI en index.html y app.js soporta asignación desde Kanban/Det
     appJs.indexOf('const prospectColumn = columns.Borrador')
   );
   assert.match(kanbanSection, /openWarehouseAssignment\(/, 'Tarjeta Kanban debe incluir acción openWarehouseAssignment');
-  assert.match(kanbanSection, /user\??\.nivel_rol\s*===\s*['"]Almacen['"]/, 'Botón Kanban debe mostrarse solo a Almacen');
+  assert.match(kanbanSection, /canAssignWarehouseSizes\(\)/, 'Botón Kanban debe mostrarse solo a roles autorizados (ADR-021)');
   assert.match(kanbanSection, /almacen_estado\s*===\s*['"]PENDIENTE['"]/, 'Botón Kanban debe mostrarse solo si almacen_estado === PENDIENTE');
 
   const openAssignmentSection = appJs.slice(

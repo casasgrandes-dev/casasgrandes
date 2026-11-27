@@ -267,7 +267,7 @@ async function showAppView() {
   }
   const tabRequests = document.getElementById('tab-solicitudes');
   if (tabRequests) {
-    tabRequests.style.display = user.nivel_rol === 'Almacen' ? 'block' : 'none';
+    tabRequests.style.display = ['Almacen', 'Administrador'].includes(user.nivel_rol) ? 'block' : 'none';
   }
   const seedMovementFilter = document.getElementById('cat-btn-semilla');
   if (seedMovementFilter) {
@@ -1077,6 +1077,52 @@ window.moveQuoteStatus = async function(quoteId, currentStatus, direction, event
   }
 };
 
+function canAssignWarehouseSizes() {
+  return Boolean(user && ['Almacen', 'Administrador'].includes(user.nivel_rol));
+}
+
+function canDeliverReservedQuote() {
+  return Boolean(user && ['Administrador', 'Coordinador', 'Almacen'].includes(user.nivel_rol));
+}
+
+window.deliverReservedQuote = async function(quoteId, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  if (!canDeliverReservedQuote()) {
+    alert('No tienes permisos para marcar pedidos como entregados.');
+    return;
+  }
+  const quote = allQuotes.find(item => Number(item.id) === Number(quoteId))
+    || warehouseRequests.find(item => Number(item.id) === Number(quoteId));
+  const folio = quote?.folio_cotizacion ? ` ${quote.folio_cotizacion}` : '';
+  if (!confirm(`¿Confirmar entrega física de la solicitud${folio}? Se descontarán los tamaños y lotes previamente asignados.`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`${API_URL}/api/cotizaciones/${quoteId}/status`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ estatus: 'Entregado' })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'No fue posible marcar la solicitud como entregada.');
+    }
+    closeModal('quote-detail-modal');
+    await Promise.all([
+      loadCRMBoardData(),
+      loadWarehouseRequests(),
+      loadAlmacenData()
+    ]);
+    alert('Solicitud marcada como Entregada y salida física registrada.');
+  } catch (err) {
+    console.error('Failed to deliver reserved quote:', err);
+    alert(err.message);
+  }
+};
+
 // Modal helpers
 window.openModal = function(modalId) {
   document.getElementById(modalId).classList.add('active');
@@ -1371,8 +1417,15 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
       ? `<div style="margin-top:6px;"><span class="badge ${warehouseBadgeMap[effectiveAlmacenEstado].cls}">${warehouseBadgeMap[effectiveAlmacenEstado].text}</span></div>`
       : '';
     const isPendingWarehouse = q.almacen_estado === 'PENDIENTE' || (!q.almacen_estado && q.estatus === 'Autorizada');
-    const warehouseAssignAction = user?.nivel_rol === 'Almacen' && isChg025 && isPendingWarehouse
+    const isReservedReadyToDeliver = q.almacen_estado === 'RESERVADA' && ['Autorizada', 'Vendido'].includes(status);
+    const warehouseAssignAction = canAssignWarehouseSizes() && isChg025 && isPendingWarehouse
       ? `<div style="margin-top:8px;"><button type="button" class="btn btn-primary" style="width:100%;padding:6px 8px;font-size:12px;" onclick="event.stopPropagation(); openWarehouseAssignment(${q.id})">📦 Asignar tamaños</button></div>`
+      : '';
+    const reservedBreakdown = canAssignWarehouseSizes() && isChg025 && Array.isArray(q.reservas) && q.reservas.length > 0
+      ? `<div style="margin-top:4px;font-size:11px;color:#065f46;">${q.reservas.map(r => `${escapeHtml(r.tamano)}${r.lote ? ` (${escapeHtml(r.lote)})` : ''} × ${Number(r.cantidad || 0)}`).join(', ')}</div>`
+      : '';
+    const warehouseDeliverAction = canDeliverReservedQuote() && isChg025 && isReservedReadyToDeliver
+      ? `<div style="margin-top:8px;"><button type="button" class="btn btn-primary" style="width:100%;padding:6px 8px;font-size:12px;background:#059669;border-color:#059669;" onclick="event.stopPropagation(); deliverReservedQuote(${q.id}, event)">🚚 Marcar como Entregado</button></div>`
       : '';
     
     card.innerHTML = `
@@ -1387,7 +1440,7 @@ function renderKanbanBoard(quotesList, prospectsList = []) {
         <span style="font-size: 11px; color: var(--text-light);">👤 ${q.asesor_nombre.split(' ')[0]}</span>
         ${condition === 'APARTADO' ? '' : `<span class="kanban-card-price">$${q.total_mxn.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>`}
       </div>
-      ${warehouseBadge}${warehouseAssignAction}
+      ${warehouseBadge}${reservedBreakdown}${warehouseAssignAction}${warehouseDeliverAction}
       <div class="kanban-card-mobile-arrows">
         ${canManageSalesFlow() && prevLabel ? `<button class="kanban-arrow-btn prev-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'up', event)">▲ ${prevLabel}</button>` : ''}
         ${canManageSalesFlow() && nextLabel ? `<button class="kanban-arrow-btn next-stage" onclick="moveQuoteStatus(${q.id}, '${status}', 'down', event)">▼ ${nextLabel}</button>` : ''}
@@ -1815,16 +1868,42 @@ async function showQuoteDetails(quoteId) {
       && !['Entregado', 'Cancelada', 'Rechazada'].includes(quote.estatus);
     if (cancelBtn) cancelBtn.style.display = canCancelChg025 ? 'inline-flex' : 'none';
 
+    const reservationsBox = document.getElementById('quote-detail-reservations-box');
+    const reservationsList = document.getElementById('quote-detail-reservations-list');
+    if (reservationsBox && reservationsList) {
+      if (canAssignWarehouseSizes() && isChg025 && Array.isArray(quote.reservas) && quote.reservas.length > 0) {
+        reservationsList.innerHTML = quote.reservas
+          .map(r => `<div>• <strong>${escapeHtml(r.tamano)}</strong>${r.lote ? ` · Lote <strong>${escapeHtml(r.lote)}</strong>` : ''} — ${Number(r.cantidad || 0).toLocaleString('es-MX')} bolsas</div>`)
+          .join('');
+        reservationsBox.style.display = 'block';
+      } else {
+        reservationsList.innerHTML = '';
+        reservationsBox.style.display = 'none';
+      }
+    }
+
     const assignWarehouseBtn = document.getElementById('btn-assign-warehouse-sizes');
     if (assignWarehouseBtn) {
       const isQuotePendingWarehouse = quote.almacen_estado === 'PENDIENTE' || (!quote.almacen_estado && quote.estatus === 'Autorizada');
-      const canAssignWarehouse = user && user.nivel_rol === 'Almacen' && isChg025 && isQuotePendingWarehouse;
+      const canAssignWarehouse = canAssignWarehouseSizes() && isChg025 && isQuotePendingWarehouse;
       assignWarehouseBtn.style.display = canAssignWarehouse ? 'inline-flex' : 'none';
       assignWarehouseBtn.onclick = canAssignWarehouse
         ? () => {
             closeModal('quote-detail-modal');
             openWarehouseAssignment(quote.id, quote);
           }
+        : null;
+    }
+
+    const deliverReservedBtn = document.getElementById('btn-deliver-reserved-quote');
+    if (deliverReservedBtn) {
+      const canDeliverQuote = canDeliverReservedQuote()
+        && isChg025
+        && quote.almacen_estado === 'RESERVADA'
+        && ['Autorizada', 'Vendido'].includes(quote.estatus);
+      deliverReservedBtn.style.display = canDeliverQuote ? 'inline-flex' : 'none';
+      deliverReservedBtn.onclick = canDeliverQuote
+        ? event => deliverReservedQuote(quote.id, event)
         : null;
     }
 
@@ -3216,7 +3295,7 @@ function toggleAlmacenTab(tabName) {
 
 window.loadWarehouseRequests = async function() {
   const tbody = document.getElementById('warehouse-requests-tbody');
-  if (!tbody || user?.nivel_rol !== 'Almacen') return;
+  if (!tbody || !canAssignWarehouseSizes()) return;
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-light);">Cargando...</td></tr>';
   try {
     const response = await fetch(`${API_URL}/api/almacen/solicitudes`, { headers: getHeaders() });
@@ -3231,13 +3310,18 @@ window.loadWarehouseRequests = async function() {
       const itemSummary = (request.items || []).map(item => `${escapeHtml(item.producto_nombre)} × ${Number(item.cantidad_ordenada || 0)}`).join('<br>');
       const reservationSummary = (request.reservas || []).map(item => `${escapeHtml(item.tamano)}${item.lote ? ` (${escapeHtml(item.lote)})` : ''} × ${Number(item.cantidad || 0)}`).join(', ');
       const reserved = request.almacen_estado === 'RESERVADA';
+      const actionCell = reserved
+        ? (canDeliverReservedQuote()
+            ? `<button type="button" class="btn btn-primary" style="width:auto;padding:6px 10px;background:#059669;border-color:#059669;" onclick="deliverReservedQuote(${request.id}, event)">🚚 Marcar como Entregado</button>`
+            : '<span style="color:var(--text-light);font-size:12px;">Asignación confirmada</span>')
+        : `<button type="button" class="btn btn-primary" style="width:auto;padding:6px 10px;" onclick="openWarehouseAssignment(${request.id})">Asignar tamaños</button>`;
       return `<tr>
         <td><strong>${escapeHtml(request.folio_cotizacion || '-')}</strong></td>
         <td>${escapeHtml(request.cliente_nombre || '-')}</td>
         <td>${escapeHtml(normalizedQuoteCondition(request.condiciones_pago))}</td>
         <td>${itemSummary}${reservationSummary ? `<small style="display:block;color:var(--text-light);margin-top:4px;">Reservado: ${reservationSummary}</small>` : ''}</td>
         <td><span class="badge ${reserved ? 'badge-success' : 'badge-warning'}">${reserved ? 'Reservada' : 'Pendiente'}</span></td>
-        <td>${reserved ? '<span style="color:var(--text-light);font-size:12px;">Asignación confirmada</span>' : `<button type="button" class="btn btn-primary" style="width:auto;padding:6px 10px;" onclick="openWarehouseAssignment(${request.id})">Asignar tamaños</button>`}</td>
+        <td>${actionCell}</td>
       </tr>`;
     }).join('');
   } catch (error) {

@@ -735,9 +735,9 @@ test('TDD-TC-133: Administrador registra salidas manuales de semilla en Almacén
   const requestsResponse = await fetch(`${baseUrl}/api/almacen/solicitudes`, {
     headers: adminHeaders
   });
-  assert.equal(requestsResponse.status, 403);
+  assert.equal(requestsResponse.status, 200);
 
   const appJs = fs.readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8');
-  assert.match(appJs, /tabRequests\.style\.display = user\.nivel_rol === 'Almacen' \? 'block' : 'none'/);
+  assert.match(appJs, /tabRequests\.style\.display = \['Almacen', 'Administrador'\]\.includes\(user\.nivel_rol\) \? 'block' : 'none'/);
   assert.match(appJs, /\['Almacen', 'Administrador'\]\.includes\(user(?:\?)?\.nivel_rol\)/);
 });

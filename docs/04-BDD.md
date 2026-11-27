@@ -1152,4 +1152,33 @@ BDD-SC-107..118 y BDD-SC-122..124 se ejecutan desde `features/chg027_bot_inventa
 - **Cuando** consulta `GET /api/almacen/solicitudes`
 - **Entonces** la respuesta tiene código `200` e incluye la solicitud con `almacen_estado = 'PENDIENTE'`.
 
+## Escenarios BDD del Incremento CHG-035
+
+### BDD-SC-141 — Administrador y Almacen pueden asignar tamaños y lotes desde una solicitud de Apartado o Crédito autorizada
+
+- **Dado** un usuario autenticado con rol `Administrador` o `Almacen`
+- **Y** una solicitud `CHG-025` de condición `APARTADO` o `CREDITO` en `estatus = 'Autorizada'` con `almacen_estado = 'PENDIENTE'`
+- **Cuando** asigna tamaños y lotes en `POST /api/almacen/solicitudes/:id/asignaciones`
+- **Entonces** la respuesta tiene código `201`, se registran las reservas `ACTIVA` y la solicitud pasa a `estatus = 'Vendido'` y `almacen_estado = 'RESERVADA'`.
+
+### BDD-SC-142 — Almacen puede pasar a Entregado una solicitud previamente asignada descontando los mismos tamaños y lotes
+
+- **Dado** un usuario autenticado con rol `Almacen`
+- **Y** una solicitud `CHG-025` en `estatus = 'Vendido'` con `almacen_estado = 'RESERVADA'` y reserva `ACTIVA` en `BT1` lote `LOTE-A`
+- **Cuando** ejecuta `PUT /api/cotizaciones/:id/status` con `estatus = 'Entregado'`
+- **Entonces** la respuesta tiene código `200` y registra la salida física en `almacen_movimientos` con tamaño `BT1` y lote `LOTE-A`.
+
+### BDD-SC-143 — Bloquear paso a Entregado si la solicitud no tiene asignación previa
+
+- **Dado** una solicitud `CHG-025` en `estatus = 'Autorizada'` con `almacen_estado = 'PENDIENTE'`
+- **Cuando** se intenta marcar como `Entregado` en `PUT /api/cotizaciones/:id/status`
+- **Entonces** la respuesta tiene código `409`.
+
+### BDD-SC-144 — Almacen no puede cancelar ni revertir y Coordinador/Asesor no pueden asignar tamaños
+
+- **Dado** un usuario autenticado con rol `Almacen`
+- **Cuando** intenta cancelar o revertir en `PUT /api/cotizaciones/:id/status`
+- **Entonces** la respuesta tiene código `403`.
+
+
 

@@ -1,0 +1,6 @@
+# Casos TDD — CHG-035
+
+- `TDD-TC-156`: RBAC `ADR-021` — `Administrador` y `Almacen` acceden a `/api/almacen/solicitudes`, `/disponibilidad` y `/asignaciones`; `Coordinador` y `Asesor` reciben `403`. `Almacen` puede ejecutar `PUT /api/cotizaciones/:id/status` únicamente hacia `Entregado` cuando `almacen_estado === 'RESERVADA'`, recibiendo `403` para `Cancelada`, reversiones y cotizaciones `LEGACY`.
+- `TDD-TC-157`: Flujo atómico `Autorizada (PENDIENTE) -> POST /asignaciones -> Vendido (RESERVADA) -> PUT /status (Entregado)` descontando en `almacen_movimientos` exactamente el `tamano` y `lote` previamente asignados, y devolviendo `409` al intentar entregar una solicitud `PENDIENTE`.
+- `TDD-TC-158`: `GET /api/cotizaciones` adjunta `reservas` activas (tamaño, lote, cantidad) únicamente para `Almacen` y `Administrador`, omitiéndolas para `Coordinador` y `Asesor`.
+- `TDD-TC-159`: UI en `public/index.html`, `public/js/app.js` y `public/js/security.js` habilita `#tab-solicitudes` y `"📦 Asignar tamaños"` para `Almacen` y `Administrador`, muestra las reservas previas en *Detalle de Cotización*, renderiza el botón `"🚚 Marcar como Entregado"` (escritorio y móvil) para `Almacen`, `Administrador` y `Coordinador` solo cuando `almacen_estado === 'RESERVADA'`, autoriza `deliverReservedQuote` en `security.js` y actualiza la versión de assets.
