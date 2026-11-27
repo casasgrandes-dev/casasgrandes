@@ -2375,6 +2375,11 @@
             </table>
           </div>
 
+          <div id="quote-detail-reservations-box" style="display: none; margin-bottom: 18px;">
+            <strong>Tamaños y lotes asignados (reserva previa):</strong>
+            <div id="quote-detail-reservations-list" style="background: #ecfdf5; padding: 10px 12px; border-radius: var(--radius); font-size: 13px; margin-top: 6px; color: #065f46; border-left: 3px solid #10b981; line-height: 1.5;"></div>
+          </div>
+
           <div style="margin-bottom: 24px;">
             <strong>Notas:</strong>
             <p id="quote-detail-notas" style="background: var(--bg-hover); padding: 12px; border-radius: var(--radius); font-size: 13px; margin-top: 6px; color: var(--text); border-left: 3px solid var(--border); line-height: 1.4;">-</p>
@@ -2403,6 +2408,7 @@
               ✔️ Autorizar Cotización
             </button>
             <button id="btn-assign-warehouse-sizes" class="btn btn-primary" style="display: none; width: auto; margin-top: 0; font-weight: 600; gap: 6px; align-items: center;">📦 Asignar tamaños</button>
+            <button id="btn-deliver-reserved-quote" class="btn btn-primary" style="display: none; width: auto; margin-top: 0; background: #059669; border-color: #059669; font-weight: 600; gap: 6px; align-items: center;">🚚 Marcar como Entregado</button>
             <button class="btn btn-secondary" style="width: auto; margin-top: 0;" onclick="closeModal('quote-detail-modal')">Cerrar</button>
           </div>
         </div>
@@ -3078,8 +3084,8 @@
   </div>
 
   <!-- Load script -->
-  <script src="js/security.js?v=20261125-chg034"></script>
+  <script src="js/security.js?v=20261126-chg035"></script>
   <script src="js/programacion-pricing.js?v=20261016-chg025"></script>
-  <script src="js/app.js?v=20261125-chg034"></script>
+  <script src="js/app.js?v=20261126-chg035"></script>
 </body>
 </html>

@@ -444,4 +444,19 @@ CHG-026 no agrega objetivo de producto. La matriz completa está en `docs/cambio
 - Fase Roja: `node --test test/chg034_almacen_asignacion_integral.test.js` (`0 pass, 4 fail`) y `npx cucumber-js features/chg034_almacen_asignacion_integral.feature` (`3 failed`) fallaron antes de la implementación.
 - Fase Verde y Regresión: `npm run lint`, `npm test` / `npm run test:coverage` (`200 pass, 0 fail, 3 skipped` sin `TEST_POSTGRES_URL`; cobertura 47.56% líneas/sentencias, 64.5% ramas, 82.44% funciones), `npm run test:bdd` (`39/39` escenarios, `207/207` pasos), `npm run test:contract` (`4/4`) y `npm run lint:openapi` (`4/4`) ejecutados con código de salida 0.
 
+## Trazabilidad CHG-035
+
+| Objetivo | Requisito | Diseño | Escenario | Prueba | Implementación | Evidencia | Estado |
+|---|---|---|---|---|---|---|---|
+| OBJ-022 | PRD-FR-070 | ADR-016, ADR-020, ADR-021 | BDD-SC-141..144 | TDD-TC-156..159 | `server.js`, `public/index.html`, `public/js/app.js`, `public/js/security.js` | EVD-031 | implemented-tested-local |
+
+## EVD-031 — Evidencia local CHG-035
+
+- Fecha: 2026-11-26.
+- Calibración: Riesgo R2 (Asignación previa de tamaños/lotes para `Almacen` y `Administrador` y paso directo a `Entregado` para pedidos `RESERVADA`).
+- Fase Roja: `node --test test/chg035_asignacion_previa_entrega.test.js` (`0 pass, 4 fail`) y `npx cucumber-js features/chg035_asignacion_previa_entrega.feature` (`3 failed`) fallaron antes de la implementación.
+- Fase Verde y Regresión: `npm run lint`, `npm run test:bdd` (`43/43` escenarios, `227/227` pasos), `npm run test:contract` (`4/4`), `npm run lint:openapi` (`4/4`) y `npm run test:coverage` (`204 pass, 0 fail, 3 skipped` sin `TEST_POSTGRES_URL`; cobertura `49.12%` líneas/sentencias, `64.83%` ramas, `83.26%` funciones) ejecutados con código de salida 0.
+
+
+
 

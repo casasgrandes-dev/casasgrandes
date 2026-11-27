@@ -133,7 +133,11 @@ app.use(
       && req.method === 'GET'
       && req.baseUrl === '/api/cotizaciones'
       && (req.path === '/' || req.path === '');
-    if (isWarehouseQuotesRead) return next();
+    const isWarehouseDeliveryUpdate = req.user?.nivel_rol === 'Almacen'
+      && req.method === 'PUT'
+      && req.baseUrl === '/api/cotizaciones'
+      && /^\/\d+\/status$/.test(req.path);
+    if (isWarehouseQuotesRead || isWarehouseDeliveryUpdate) return next();
     return requireCommercialRole(req, res, next);
   }
 );
@@ -1606,6 +1610,31 @@ app.get('/api/cotizaciones', authenticateToken, async (req, res) => {
       if (req.user.nivel_rol !== 'Almacen') {
         for (const item of q.items) delete item.tamano;
       }
+      if (['Almacen', 'Administrador'].includes(req.user.nivel_rol)) {
+        try {
+          q.reservas = await db.all(`
+            SELECT cotizacion_detalle_id, producto_id, tamano, lote, cantidad, estado
+            FROM cotizacion_reservas
+            WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+            ORDER BY id ASC
+          `, [q.id]);
+        } catch (resErr) {
+          if (resErr.code === '42703' || /column .*lote.* does not exist/i.test(String(resErr.message || ''))) {
+            try {
+              q.reservas = await db.all(`
+                SELECT cotizacion_detalle_id, producto_id, tamano, cantidad, estado
+                FROM cotizacion_reservas
+                WHERE cotizacion_id = ? AND estado = 'ACTIVA'
+                ORDER BY id ASC
+              `, [q.id]);
+            } catch (_) {
+              q.reservas = [];
+            }
+          } else {
+            q.reservas = [];
+          }
+        }
+      }
     }
     
     res.json(quotes);
@@ -1805,7 +1834,7 @@ app.put('/api/cotizaciones/:id/confirmaciones-contado', authenticateToken, requi
   }
 });
 
-app.get('/api/almacen/solicitudes', authenticateToken, requireRoles('Almacen'), async (req, res) => {
+app.get('/api/almacen/solicitudes', authenticateToken, requireRoles('Almacen', 'Administrador'), async (req, res) => {
   try {
     const solicitudesSql = `
       SELECT q.id, q.folio_cotizacion, q.condiciones_pago, q.almacen_estado, q.estatus,
@@ -1885,7 +1914,7 @@ app.get('/api/almacen/solicitudes', authenticateToken, requireRoles('Almacen'), 
 
 const DEFAULT_SEED_SIZES = Object.freeze(['BT1', 'BT2', 'BT3', 'BW1', 'BW2', 'PT1', 'PT2', 'PT3', 'PW1', 'PW2']);
 
-app.get('/api/almacen/solicitudes/:id/disponibilidad', authenticateToken, requireRoles('Almacen'), async (req, res) => {
+app.get('/api/almacen/solicitudes/:id/disponibilidad', authenticateToken, requireRoles('Almacen', 'Administrador'), async (req, res) => {
   try {
     const details = await db.all(
       'SELECT id, producto_id, cantidad_ordenada FROM cotizacion_detalles WHERE cotizacion_id = ? ORDER BY id',
@@ -2003,7 +2032,7 @@ app.get('/api/almacen/solicitudes/:id/disponibilidad', authenticateToken, requir
   }
 });
 
-app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, requireRoles('Almacen'), async (req, res) => {
+app.post('/api/almacen/solicitudes/:id/asignaciones', authenticateToken, requireRoles('Almacen', 'Administrador'), async (req, res) => {
   if (!Array.isArray(req.body?.detalles) || req.body.detalles.length === 0) {
     return res.status(400).json({ error: 'Debes asignar todas las partidas de la solicitud.' });
   }
@@ -2203,8 +2232,9 @@ app.put('/api/cotizaciones/:id/status', authenticateToken, async (req, res) => {
     }
     const isChg025 = q.flujo_version === 'CHG-025';
     const isSalesManager = ['Administrador', 'Coordinador'].includes(req.user.nivel_rol);
-    if (!isSalesManager || (!isChg025 && req.user.nivel_rol !== 'Administrador')) {
-      return { status: 403, body: { error: 'Solo Administrador o Coordinador pueden mover solicitudes CHG-025.' } };
+    const isWarehouseDelivery = req.user.nivel_rol === 'Almacen' && isChg025 && estatus === 'Entregado';
+    if ((!isSalesManager && !isWarehouseDelivery) || (!isChg025 && req.user.nivel_rol !== 'Administrador')) {
+      return { status: 403, body: { error: 'Solo Administrador o Coordinador pueden mover solicitudes CHG-025 (Almacén únicamente puede marcar como Entregado pedidos reservados).' } };
     }
     if (q.estatus === estatus) {
       return { status: 200, body: { message: 'La solicitud ya se encuentra en ese estado.', replay: true } };
